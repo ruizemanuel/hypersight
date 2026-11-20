@@ -1,0 +1,30 @@
+# dependencies & builds
+node_modules/
+dist/
+build/
+*.ehpk
+coverage/
+.turbo/
+.vite/
+
+# secrets — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.yaml
+
+# local data
+*.sqlite
+*.sqlite-journal
+*.db
+data/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.log
