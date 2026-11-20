@@ -820,6 +820,11 @@ Budget for a HUD: one WS connection carrying `fastAssetCtxs`, `clearinghouseStat
 
 ## 13. Open questions to verify on testnet before building (ordered by design impact)
 
+**Answered 2026-11-20 (read-only checks on the builder's funded testnet account):**
+- Faucet USDC lands in the **spot** balance: `spotClearinghouseState` shows `USDC total "999.0"` (1,000 minus the 1 USDC activation fee, [HL §1]); perp `clearinghouseState` shows `accountValue "0.0"`.
+- The account's abstraction mode is **`unifiedAccount`** → spot USDC is the single source of truth for balance across spot, perps and outcomes [HL §7.1]; no `agentSendAsset` perp→spot step is needed for outcome buys on this account (keep the step only for `default`/`disabled` modes).
+- An **unnamed** API wallet is registered: `webData3.userState.agentAddress` is set, `extraAgents` is `[]`, and `userRole(agent)` returns `{"role":"agent","data":{"user":<master>}}`. Its `agentValidUntil` is 2026-12-04 15:11 UTC (≈ 14 days; covers the deadline and Demo Day).
+
 1. Outcome **minimum order size/notional**, and whether fractional sizes are rejected. Place 1 share at 0.01, then 0.5 share.
 2. Outcome **price bounds and decimals**: test 0.000001 (6 dp), 0.99999 and 1.0.
 3. Does **`scheduleCancel`** cancel TP/SL trigger orders? What error appears if it is set < 5 s ahead or after 10 triggers?
