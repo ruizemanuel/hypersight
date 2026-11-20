@@ -56,3 +56,26 @@ Handshake to `session_started`: 307–493 ms.
 | what's the weather like | 2.18 s | `unknown` — "Not a trading command" |
 
 ~910 input / ~60–130 output tokens per call (≈ $0.005). **Design consequence:** correct and cheap, but 2–3 s → keep the fast-path grammar first and show a `Thinking…` overlay only when the LLM is used.
+
+## 4. Even Hub simulator UI spike (SDK 0.0.16, simulator 0.9.5)
+
+Throwaway app (outside the repo) rendering the planned card skeleton, a glyph test page, an actions list and the contextual menu, driven through the automation API.
+
+**Glyphs.** Simulator rendering and the firmware glyph table in `@evenrealities/pretext` (`getAdvW`) agree: **present** `− × ≈ ≤ ≥ ± … · • → ▲ ▼ ● ○ ■ □ ━ ─ ▁–█ ° — – $ € % @ ★`; **missing** `✓ ✗` (advance width 0 → silently dropped). Widths (px): `−` 10, `≈` 12, `≤` 11, `→` 17, `▼` 20, `·` 5.
+
+**Card layout.** Header 34 px tall showed a scrollbar: a single line needs **≥ 35 px** (27 px line + 2×4 px padding) → use 36 px for one-line containers. Bordered value box 50 px (border 1, padding 4) fits one line. Body with 3 lines at 150 px is fine. Brightness levels are not distinguishable in simulator screenshots (all rendered the same green).
+
+**Input envelopes observed in the simulator.**
+| Gesture | Event |
+|---|---|
+| Swipe on a non-overflowing capture text container | `textEvent.eventType` 1 (up) / 2 (down), every swipe |
+| Tap | `sysEvent` with no `eventType` (= CLICK 0), `eventSource: 1` |
+| Double tap | `sysEvent.eventType` 3 |
+| Long press / release | `sysEvent.eventType` 9 / 10 (no `eventSource` in the simulator) |
+| List: swipe | highlight moves, **no event** |
+| List: tap | `listEvent {containerID, containerName, currentSelectItemIndex}` — `currentSelectItemName` **empty** → use the index; index 0 arrives as `undefined` |
+| Contextual menu open → pick item | `sysEvent` 4 (foreground enter) → `menuItemClickEvent {itemID}` → `sysEvent` 5 |
+
+**Mic.** `audioControl(true, Glasses)` → `true`; laptop-mic PCM arrives in **3,200-byte chunks (100 ms)**; release → `audioControl(false)`.
+
+**Rebuild cost in the simulator:** 4–10 ms (not representative of hardware, which the docs put at ~165 ms).
