@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no"
+    />
+    <title>HyperSight</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #111111;
+        color: #ffffff;
+        font: 15px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+        /* Kill WebView zoom, iOS auto-sizing and rubber-band scroll (official template rules). */
+        touch-action: manipulation;
+        -webkit-text-size-adjust: 100%;
+        overscroll-behavior: none;
+      }
+      #app {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        height: 100%;
+        align-items: center;
+        justify-content: center;
+        padding: 12px;
+        box-sizing: border-box;
+        text-align: center;
+      }
+      #app h1 {
+        margin: 0;
+        font-size: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <h1>HyperSight</h1>
+      <div id="status">Starting…</div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

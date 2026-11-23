@@ -1,0 +1,19 @@
+{
+  "name": "@hypersight/hud",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@evenrealities/even_hub_sdk": "0.0.16",
+    "@hypersight/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "vite": "8.3.8"
+  }
+}
