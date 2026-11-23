@@ -17,7 +17,7 @@ Throwaway experiments (code kept outside the repo; only conclusions recorded her
 | Exchange call latency (from Argentina) | **~1.0–1.1 s** per `/exchange` request (order or cancel). |
 | Testnet outcome liquidity | Sample of 35 markets: 27 two-sided, 4 empty, rest one-sided. Typical market-maker quote **0.49 / 0.51 with ~$7–10 per side**; a few template markets have ~$2,000 per side; the BTC daily YES book had **no asks** at test time (NO side had 20 shares). |
 | Open orders after tests | `[]` (all test orders cancelled). |
-| Pending | 2 NO shares of the BTC daily (expiry 2026-11-21 03:00 UTC) kept on purpose to observe settlement (open question #10). |
+| Settlement of held shares | Observed on 2026-11-23 — see §5 (open question #10 answered). |
 
 **Design consequences**
 - Outcome sizing: `shares = floor(usd / price)` and reject when `shares·price < 1` ("Minimum $1"); default outcome presets **$5 / $10 / $25** (testnet depth ≈ $10 per side).
@@ -79,3 +79,20 @@ Throwaway app (outside the repo) rendering the planned card skeleton, a glyph te
 **Mic.** `audioControl(true, Glasses)` → `true`; laptop-mic PCM arrives in **3,200-byte chunks (100 ms)**; release → `audioControl(false)`.
 
 **Rebuild cost in the simulator:** 4–10 ms (not representative of hardware, which the docs put at ~165 ms).
+
+## 5. Outcome settlement (checked 2026-11-23, read-only)
+
+The 2 NO shares of the BTC daily (outcome 27153, `class:priceBinary|underlying:BTC|expiry:20261121-0300|targetPrice:62452|period:1d`), bought 2026-11-20 15:38 UTC at 0.61781 (cost $1.24), were left to expire.
+
+| Question | Result |
+|---|---|
+| `settledOutcome {outcome: 27153}` | `settleFraction "0.0"` (YES pays 0, NO pays 1), `details "price:58606"` (BTC mark at expiry 58,606 < target 62,452). |
+| How it shows in fills | One synthetic fill at **2026-11-21 03:00:10.647 UTC** (~10.6 s after expiry): `coin "#271531"`, `dir "Settlement"`, `side "A"`, `sz "2.0"`, `px "1.0"`, `closedPnl "0.76438"`, `fee "0.0014"` (≈ 0.07% of payout). |
+| How it shows in balances | The `+271531` row is gone; no `o27153` row appears. Payout is already in `USDC` (`spotClearinghouseState` lists only USDC). |
+| Ledger | `userNonFundingLedgerUpdates` has no settlement entry — the fill is the only record. |
+| Claim needed? | No — automatic. |
+
+**Design consequences**
+- Detect settlement of a held position from `userFills` / the `userFills` WS feed: `dir === "Settlement"`; `px` is the payout per share (1.0 for the winning side) and `closedPnl` is the realized result. This drives the `settled` alert ("NO won · +$0.76") and the recap, without polling `settledOutcome`.
+- `outcomeMetaUpdates {outcomeSettled}` still removes the market from the catalogue; the position card disappears because the `+enc` balance is gone on the next `spotState` push.
+- Settlement charges a small fee; the result card shows `closedPnl` (already net of cost, before fee) and does not promise exactly `$1 × shares`.

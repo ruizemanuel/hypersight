@@ -311,7 +311,7 @@ In openOrders and fills, an outcome order appears under the coin of the side you
 - **Automatic settlement.** Recurring and deployer outcomes settle automatically. No claim or redeem call is needed [3P Chainstack, consistent with DOC "Settlement automatically converts…"].
 - **Open orders** on a settled outcome are canceled with status **`outcomeSettledCanceled`**. This status was seen 106 times on testnet [LIVE] but is missing from the official status table [DOC]. NKSDK types include it.
 - **Result.** `{"type":"settledOutcome","outcome":27120}` returns `{"spec":{…,"quoteToken":"USDC","venue":"omen"},"settleFraction":"1.0","details":"template"}` [LIVE]. The DOC example has `"details":"price:76876.9"` for recurring.
-- **Detection.** Watch the WS `outcomeMetaUpdates` event `{outcomeSettled: id}`, then refresh `spotClearinghouseState`. The `+enc` balance disappears and is credited as USDC [3P]. Exact timing and the `oN` balance representation are **UNKNOWN**.
+- **Detection.** Watch the WS `outcomeMetaUpdates` event `{outcomeSettled: id}`, then refresh `spotClearinghouseState`. The `+enc` balance disappears and is credited as USDC [3P]. Observed on testnet (2026-11-21): ~10 s after expiry, a `userFills` entry with `dir: "Settlement"` (px = payout per share, `closedPnl` = result) and no `oN` balance row — see `spike-results-2026-11-20.md` §5 [LIVE].
 
 ### 3.9 Split, merge and negate (`userOutcome`, L1 action) [DOC exchange-endpoint]
 
