@@ -1,4 +1,8 @@
-import { waitForEvenAppBridge } from '@evenrealities/even_hub_sdk';
+import {
+  AudioInputSource,
+  DeviceConnectType,
+  waitForEvenAppBridge,
+} from '@evenrealities/even_hub_sdk';
 import { createPageRenderer } from './bridge/pages';
 import { createBridgeQueue } from './bridge/queue';
 import { createInputNormalizer } from './input/normalize';
@@ -13,8 +17,10 @@ import {
   pageFor,
   step,
 } from './state/hud-state';
+import { VoiceController } from './voice/controller';
 
 const LIVE_DEBOUNCE_MS = 120;
+const VOICE_REPLY_TIMEOUT_MS = 10_000;
 
 function serverWsUrl(): string {
   const configured = import.meta.env.VITE_SERVER_WS as string | undefined;
@@ -106,9 +112,63 @@ async function boot(): Promise<void> {
     else render();
   }
 
+  const voice = new VoiceController({
+    audio: (on) =>
+      queue.run(() =>
+        on ? bridge.audioControl(true, AudioInputSource.Glasses) : bridge.audioControl(false),
+      ),
+    socket: {
+      send: (m) => socket?.send(m) ?? false,
+      sendAudio: (pcm) => socket?.sendAudio(pcm) ?? false,
+    },
+  });
+  let localThinkingTimer: ReturnType<typeof setTimeout> | null = null;
+  voice.onChange((s) => {
+    if (s === 'listening') {
+      dispatch({ type: 'overlay', overlay: { kind: 'listening', transcript: '' }, at: Date.now() });
+      return;
+    }
+    // Released: show Thinking until the server answers; never leave it stuck if it does not.
+    if (state.overlay?.kind !== 'listening') return;
+    const at = Date.now();
+    dispatch({ type: 'overlay', overlay: { kind: 'thinking' }, at });
+    if (localThinkingTimer) clearTimeout(localThinkingTimer);
+    localThinkingTimer = setTimeout(() => {
+      if (state.overlay?.kind === 'thinking' && state.overlayAt === at) {
+        dispatch({ type: 'overlay', overlay: null, at: Date.now() });
+      }
+    }, VOICE_REPLY_TIMEOUT_MS);
+  });
+  voice.onUnavailable(() => {
+    dispatch({
+      type: 'overlay',
+      overlay: { kind: 'error', message: 'Voice unavailable — use TAP actions' },
+      at: Date.now(),
+    });
+  });
+  bridge.onDeviceStatusChanged((status) => {
+    const t = status.connectType;
+    if (t === DeviceConnectType.Connected) void voice.onDevice('connected');
+    else if (t === DeviceConnectType.Disconnected || t === DeviceConnectType.ConnectionFailed) {
+      void voice.onDevice('disconnected');
+    }
+  });
+  window.addEventListener('beforeunload', () => void bridge.audioControl(false));
+
   bridge.onEvenHubEvent((event) => {
+    // Audio first: PCM frames arrive many times a second and must never reach the input path.
+    const pcm = event.audioEvent?.audioPcm;
+    if (pcm) {
+      voice.onPcm(pcm);
+      return;
+    }
     const input = normalizer.normalize(event, Date.now());
-    if (input) dispatch(input);
+    if (!input) return;
+    // Voice sees every event first (including exit while the exit dialog is up) so the mic
+    // is always closed; events it owns never reach the deck.
+    const consumed = voice.consumes(input);
+    void voice.onInput(input);
+    if (!consumed) dispatch(input);
   });
 
   // Countdown (confirm) and elapsed time (listening) tick once a second: footer/body upgrades only.

@@ -10,6 +10,10 @@
       "name": "network",
       "desc": "Connects to the HyperSight server for live Hyperliquid testnet data and trading.",
       "whitelist": ["http://localhost:8787", "ws://localhost:8787"]
+    },
+    {
+      "name": "g2-microphone",
+      "desc": "Hold to speak a trading command."
     }
   ],
   "supported_languages": ["en"]
