@@ -1,0 +1,7 @@
+{
+ "balances": [
+  { "coin": "USDC", "token": 0, "total": "501.12962316", "hold": "0.0", "entryNtl": "0.0" },
+  { "coin": "+271210", "total": "8.0", "hold": "0.0", "entryNtl": "4.73112" },
+  { "coin": "+271230", "total": "22.0", "hold": "22.0", "entryNtl": "11.0" }
+ ]
+}
