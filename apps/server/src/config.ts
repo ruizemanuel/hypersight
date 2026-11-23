@@ -104,17 +104,22 @@ export function loadConfig(env: Env): Config {
   };
 }
 
-/** Testnet only: any Hyperliquid URL off hyperliquid-testnet.xyz is refused at startup. */
-function testnetUrl(key: string, value: string, protocols: string[]): string {
+/** True only for https:// or wss:// URLs on hyperliquid-testnet.xyz (or a subdomain). */
+export function isTestnetUrl(value: string, protocols = ['https:', 'wss:']): boolean {
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    throw new ConfigError(`${key} must be a Hyperliquid testnet URL`);
+    return false;
   }
   const host = url.hostname.toLowerCase();
   const onTestnet = host === TESTNET_HOST || host.endsWith(`.${TESTNET_HOST}`);
-  if (!onTestnet || !protocols.includes(url.protocol)) {
+  return onTestnet && protocols.includes(url.protocol);
+}
+
+/** Testnet only: any Hyperliquid URL off hyperliquid-testnet.xyz is refused at startup. */
+function testnetUrl(key: string, value: string, protocols: string[]): string {
+  if (!isTestnetUrl(value, protocols)) {
     throw new ConfigError(`${key} must be a Hyperliquid testnet URL (${TESTNET_HOST})`);
   }
   return value.replace(/\/$/, '');

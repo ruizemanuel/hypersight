@@ -12,7 +12,9 @@
   "dependencies": {
     "@hono/node-server": "2.1.11",
     "@hypersight/protocol": "workspace:*",
+    "@nktkas/hyperliquid": "0.33.3",
     "hono": "4.13.19",
+    "viem": "2.58.4",
     "ws": "8.23.0",
     "zod": "4.6.7"
   },
