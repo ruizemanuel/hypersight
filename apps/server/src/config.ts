@@ -1,0 +1,121 @@
+export class ConfigError extends Error {
+  override name = 'ConfigError';
+}
+
+export type Executor = 'testnet' | 'paper' | 'fake';
+
+export type Config = {
+  port: number;
+  hlApiUrl: string;
+  hlWsUrl: string;
+  /** Master account: every Hyperliquid query uses this address, never the agent's. */
+  accountAddress: string;
+  /** Agent (API wallet) key; only present when the executor is `testnet`. */
+  agentPrivateKey: string | undefined;
+  /** Missing key disables the Claude intent fallback (the fast grammar still works). */
+  anthropicKey: string | undefined;
+  /** Missing key disables voice (every action stays reachable by tap). */
+  elevenLabsKey: string | undefined;
+  encryptionKey: string;
+  sessionToken: string;
+  executor: Executor;
+  dbPath: string;
+  intentModel: string;
+  tonAddress: string | undefined;
+};
+
+const TESTNET_API = 'https://api.hyperliquid-testnet.xyz';
+const TESTNET_WS = 'wss://api.hyperliquid-testnet.xyz/ws';
+const TESTNET_HOST = 'hyperliquid-testnet.xyz';
+
+const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+const PRIVATE_KEY_RE = /^0x[0-9a-fA-F]{64}$/;
+const HEX32_RE = /^[0-9a-fA-F]{64}$/;
+
+type Env = Record<string, string | undefined>;
+
+/** Reads the environment. Error messages name the variable but never echo its value. */
+export function loadConfig(env: Env): Config {
+  const get = (key: string): string | undefined => {
+    const v = env[key]?.trim();
+    return v ? v : undefined;
+  };
+  const required = (key: string): string => {
+    const v = get(key);
+    if (v === undefined) throw new ConfigError(`Missing required environment variable ${key}`);
+    return v;
+  };
+  const matching = (key: string, value: string, re: RegExp, what: string): string => {
+    if (!re.test(value)) throw new ConfigError(`${key} must be ${what}`);
+    return value;
+  };
+
+  const executorRaw = get('EXECUTOR') ?? 'testnet';
+  if (executorRaw !== 'testnet' && executorRaw !== 'paper' && executorRaw !== 'fake') {
+    throw new ConfigError('EXECUTOR must be one of testnet, paper, fake');
+  }
+  const executor: Executor = executorRaw;
+
+  const portRaw = get('PORT') ?? '8787';
+  const port = Number(portRaw);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new ConfigError('PORT must be an integer between 0 and 65535');
+  }
+
+  const agentRaw = executor === 'testnet' ? required('HL_AGENT_PRIVATE_KEY') : undefined;
+
+  return {
+    port,
+    hlApiUrl: testnetUrl('HL_API_URL', get('HL_API_URL') ?? TESTNET_API, ['https:']),
+    hlWsUrl: testnetUrl('HL_WS_URL', get('HL_WS_URL') ?? TESTNET_WS, ['wss:']),
+    accountAddress: matching(
+      'HL_ACCOUNT_ADDRESS',
+      required('HL_ACCOUNT_ADDRESS'),
+      ADDRESS_RE,
+      'a 0x-prefixed 20-byte hex address',
+    ),
+    agentPrivateKey:
+      agentRaw === undefined
+        ? undefined
+        : matching(
+            'HL_AGENT_PRIVATE_KEY',
+            agentRaw,
+            PRIVATE_KEY_RE,
+            'a 0x-prefixed 32-byte hex key',
+          ),
+    anthropicKey: get('ANTHROPIC_API_KEY'),
+    elevenLabsKey: get('ELEVENLABS_API_KEY'),
+    encryptionKey: matching(
+      'ENCRYPTION_KEY',
+      required('ENCRYPTION_KEY'),
+      HEX32_RE,
+      '32 bytes of hex (openssl rand -hex 32)',
+    ),
+    sessionToken: matching(
+      'SESSION_TOKEN',
+      required('SESSION_TOKEN'),
+      /^\S{16,}$/,
+      'at least 16 non-space characters',
+    ),
+    executor,
+    dbPath: get('DB_PATH') ?? './data/hypersight.sqlite',
+    intentModel: get('INTENT_MODEL') ?? 'claude-opus-5-5',
+    tonAddress: get('TON_ADDRESS'),
+  };
+}
+
+/** Testnet only: any Hyperliquid URL off hyperliquid-testnet.xyz is refused at startup. */
+function testnetUrl(key: string, value: string, protocols: string[]): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new ConfigError(`${key} must be a Hyperliquid testnet URL`);
+  }
+  const host = url.hostname.toLowerCase();
+  const onTestnet = host === TESTNET_HOST || host.endsWith(`.${TESTNET_HOST}`);
+  if (!onTestnet || !protocols.includes(url.protocol)) {
+    throw new ConfigError(`${key} must be a Hyperliquid testnet URL (${TESTNET_HOST})`);
+  }
+  return value.replace(/\/$/, '');
+}
