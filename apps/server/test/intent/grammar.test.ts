@@ -88,6 +88,9 @@ describe('parseIntentFast', () => {
       'Long ETH $1,000 at 2x',
       { kind: 'openPerp', coin: 'ETH', side: 'long', usd: 1000, leverage: 2 },
     ],
+    ['Take profit on half of my ether.', { kind: 'closePerp', coin: 'ETH', fraction: 0.5 }],
+    ['take profits on my sol', { kind: 'closePerp', coin: 'SOL', fraction: 1 }],
+    ['how much profit am I making', { kind: 'query', topic: 'pnl' }],
   ])('%s', (text, expected, ctx = base) => {
     expect(parseIntentFast(text, ctx)).toEqual(expected);
   });

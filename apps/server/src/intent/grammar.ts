@@ -195,6 +195,10 @@ function sideOf(tokens: string[], market: Market): 0 | 1 | null {
 export function parseIntentFast(text: string, ctx: IntentContext): Intent | null {
   const tokens = tokenize(text);
   const has = (...ws: string[]) => ws.some((w) => tokens.includes(w));
+  // "take profit on half my eth" closes a position; it is not a PnL question.
+  const takeProfit = tokens.some(
+    (t, i) => t === 'take' && (tokens[i + 1] === 'profit' || tokens[i + 1] === 'profits'),
+  );
   if (tokens.length === 0) return null;
 
   if (has('cancel') && has('all', 'orders', 'everything')) return { kind: 'cancelAll' };
@@ -203,7 +207,9 @@ export function parseIntentFast(text: string, ctx: IntentContext): Intent | null
     const m = marketOf(tokens, ctx);
     return m ? { kind: 'query', topic: 'odds', marketKey: m.key } : null;
   }
-  if (has('pnl', 'profit') || (has('p') && has('l'))) return { kind: 'query', topic: 'pnl' };
+  if (!takeProfit && (has('pnl', 'profit') || (has('p') && has('l')))) {
+    return { kind: 'query', topic: 'pnl' };
+  }
   if (has('balance', 'equity')) return { kind: 'query', topic: 'balance' };
   if (has('price')) {
     const coin = coinOf(tokens, ctx);
@@ -216,7 +222,7 @@ export function parseIntentFast(text: string, ctx: IntentContext): Intent | null
     return coin && px !== null && px > 0 ? { kind: 'setStop', coin, triggerPx: px } : null;
   }
 
-  if (has('close')) {
+  if (has('close') || takeProfit) {
     const fraction = fractionOf(tokens);
     if (fraction === null) return null;
     let coin = coinOf(tokens, ctx);

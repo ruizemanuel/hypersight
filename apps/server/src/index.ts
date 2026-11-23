@@ -1,4 +1,5 @@
 import type { Server } from 'node:http';
+import Anthropic from '@anthropic-ai/sdk';
 import { serve } from '@hono/node-server';
 import { DEFAULT_PRESETS } from '@hypersight/protocol';
 import { type Config, ConfigError, loadConfig } from './config';
@@ -9,22 +10,16 @@ import { parsePerpMeta } from './hl/ids';
 import { MarketStream } from './hl/market-stream';
 import { Catalogue, type OutcomeMarket } from './hl/outcomes';
 import { createApp } from './http/app';
+import { buildIntentContext, keytermsFor } from './intent/aliases';
+import { describeIntent } from './intent/describe';
+import { type IntentContext, parseIntentFast } from './intent/grammar';
+import { resolveIntent } from './intent/resolve';
 import { SessionRegistry } from './session/registry';
 import { ElevenLabsStream } from './voice/elevenlabs';
 import { VoiceRouter } from './voice/router';
 import { startGateway } from './ws/gateway';
 
 const MARKET_RETRY_MS = 5000;
-const STATIC_KEYTERMS = [
-  'Hyperliquid',
-  'BTC',
-  'ETH',
-  'SOL',
-  'HYPE',
-  'Bitcoin',
-  'Ethereum',
-  'Solana',
-];
 /** Default watchlist until Task 14 persists it. */
 const DEFAULT_WATCH = ['rb:BTC:1d', 'rb:ETH:1d'];
 
@@ -76,19 +71,44 @@ function main(): void {
     onError: (err) => log('[deck] not published', err),
   });
 
+  const anthropic = cfg.anthropicKey ? new Anthropic({ apiKey: cfg.anthropicKey }) : null;
+  const intentContext = (): IntentContext =>
+    stream
+      ? buildIntentContext(stream.view(), catalogue, DEFAULT_WATCH)
+      : {
+          perpCoins: ['BTC', 'ETH', 'SOL', 'HYPE'],
+          positions: [],
+          outcomePositions: [],
+          markets: [],
+        };
+  const marketLookup = (key: string) => catalogue.byKey(key);
+
   const elevenLabsKey = cfg.elevenLabsKey;
   const voice = new VoiceRouter({
     factory: elevenLabsKey
       ? (opts) => new ElevenLabsStream({ apiKey: elevenLabsKey, ...opts })
       : null,
-    // Static until Task 12 builds keyterms from the intent context (tickers + market aliases).
-    keyterms: () => STATIC_KEYTERMS,
+    keyterms: () => keytermsFor(intentContext()),
     onTranscript: async (session, text) => {
-      log(`[voice ${session.id.slice(0, 8)}] "${text}"`);
-      // Task 13 turns the transcript into an intent; until then echo what was heard.
+      const ctx = intentContext();
+      // The grammar answers instantly; show Thinking only while Claude works (≈ 2–3 s).
+      if (anthropic && !parseIntentFast(text, ctx)) {
+        session.send({ t: 'overlay', overlay: { kind: 'thinking' } });
+      }
+      const r = await resolveIntent(text, ctx, { client: anthropic, model: cfg.intentModel, log });
+      log(
+        `[intent ${session.id.slice(0, 8)}] "${text}" → ${r.source} ${Math.round(r.ms)}ms ${JSON.stringify(r.intent)}`,
+      );
+      // Task 17/19 turn the intent into a proposal; until then echo what was understood.
+      const understood = r.intent.kind !== 'unknown';
       session.send({
         t: 'overlay',
-        overlay: { kind: 'result', ok: true, title: 'Heard', lines: [text] },
+        overlay: {
+          kind: 'result',
+          ok: understood,
+          title: understood ? 'Understood' : "Didn't understand",
+          lines: [describeIntent(r.intent, marketLookup), `"${text}"`],
+        },
       });
     },
     log,
