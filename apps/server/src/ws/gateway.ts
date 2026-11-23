@@ -13,6 +13,8 @@ export type SessionHandlers = {
 export type GatewayOptions = {
   /** A connection must send a valid `hello` within this window or it is closed with 4401. */
   helloTimeoutMs?: number;
+  /** Protocol-level ping interval; a connection that misses one pong is terminated. */
+  heartbeatMs?: number;
   log?: (msg: string, err?: unknown) => void;
 };
 
@@ -30,6 +32,21 @@ export function startGateway(
   const log = opts.log ?? (() => {});
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD });
 
+  // Half-open sockets (phone asleep, network switch) never close by themselves: ping every
+  // interval and terminate whoever missed the previous pong, so `session.attached` stays true.
+  const alive = new WeakMap<WebSocket, boolean>();
+  const heartbeat = setInterval(() => {
+    for (const client of wss.clients) {
+      if (alive.get(client) === false) {
+        client.terminate();
+        continue;
+      }
+      alive.set(client, false);
+      client.ping();
+    }
+  }, opts.heartbeatMs ?? 30_000);
+  heartbeat.unref();
+
   const onUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer): void => {
     const path = new URL(req.url ?? '/', 'http://localhost').pathname;
     if (path !== '/ws') {
@@ -43,6 +60,8 @@ export function startGateway(
 
   function onConnection(ws: WebSocket): void {
     let session: Session | null = null;
+    alive.set(ws, true);
+    ws.on('pong', () => alive.set(ws, true));
     const helloTimer = setTimeout(
       () => ws.close(CLOSE_UNAUTHORIZED, 'hello required'),
       helloTimeoutMs,
@@ -79,7 +98,7 @@ export function startGateway(
       ws.close(CLOSE_UNAUTHORIZED, 'unauthorized');
       return null;
     }
-    session.attach(ws, msg.lastSeq);
+    session.attach(ws, msg.lastSeq, msg.sessionId);
     return session;
   }
 
@@ -104,6 +123,7 @@ export function startGateway(
   return {
     close: () =>
       new Promise<void>((resolve) => {
+        clearInterval(heartbeat);
         server.off('upgrade', onUpgrade);
         for (const client of wss.clients) client.terminate();
         wss.close(() => resolve());

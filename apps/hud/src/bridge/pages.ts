@@ -49,12 +49,20 @@ export function createMainScreen(
     async start(content: string): Promise<boolean> {
       if (started) return startupOk;
       started = true;
-      const result = await queue.run(() =>
-        bridge.createStartUpPageContainer(
-          new CreateStartUpPageContainer({ containerTotalNum: 1, textObject: [mainText(content)] }),
-        ),
-      );
-      startupOk = result === 0;
+      try {
+        const result = await queue.run(() =>
+          bridge.createStartUpPageContainer(
+            new CreateStartUpPageContainer({
+              containerTotalNum: 1,
+              textObject: [mainText(content)],
+            }),
+          ),
+        );
+        startupOk = result === 0;
+      } catch {
+        // A hung or failed startup call must not stop the boot: the next render rebuilds.
+        startupOk = false;
+      }
       onTextUpdate();
       return startupOk;
     },

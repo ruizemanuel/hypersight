@@ -108,4 +108,39 @@ describe('Session', () => {
     s.detach(a);
     expect(s.attached).toBe(true);
   });
+
+  it('replays the full snapshot when the client cursor is ahead of this session (server restarted)', () => {
+    const s = new Session('s2');
+    s.send({ t: 'deck', cards: [card] }); // seq 1
+    s.send({ t: 'overlay', overlay: { kind: 'thinking' } }); // seq 2
+    const ws = new FakeWs();
+    s.attach(ws, 4000);
+    expect(ws.sent.map((m) => m.t)).toEqual(['welcome', 'deck', 'overlay']);
+  });
+
+  it('replays the full snapshot when the client resumes a different session id', () => {
+    const s = new Session('s2');
+    s.send({ t: 'deck', cards: [card] }); // seq 1
+    s.send({ t: 'overlay', overlay: { kind: 'thinking' } }); // seq 2
+    s.send({ t: 'overlay', overlay: null }); // seq 3
+    const ws = new FakeWs();
+    s.attach(ws, 2, 'old-session');
+    expect(ws.sent.map((m) => m.t)).toEqual(['welcome', 'deck', 'overlay']);
+    const same = new FakeWs();
+    s.attach(same, 3, 's2');
+    expect(same.sent.map((m) => m.t)).toEqual(['welcome']);
+  });
+
+  it('survives a throwing attach/detach listener', () => {
+    const s = new Session('s1');
+    s.on('attach', () => {
+      throw new Error('listener bug');
+    });
+    s.on('detach', () => {
+      throw new Error('listener bug');
+    });
+    const ws = new FakeWs();
+    expect(() => s.attach(ws)).not.toThrow();
+    expect(() => s.detach(ws)).not.toThrow();
+  });
 });

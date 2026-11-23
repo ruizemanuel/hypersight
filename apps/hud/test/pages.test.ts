@@ -43,4 +43,13 @@ describe('createMainScreen', () => {
     await screen.show('HyperSight\nConnected · TESTNET');
     expect(calls.map((c) => c.method)).toEqual(['create', 'rebuild']);
   });
+
+  it('keeps booting when the startup call hangs past the bridge timeout', async () => {
+    const { bridge, calls } = fakeBridge();
+    bridge.createStartUpPageContainer = () => new Promise<number>(() => {});
+    const screen = createMainScreen(bridge, createBridgeQueue({ timeoutMs: 50 }), () => {});
+    await expect(screen.start('HyperSight\nConnecting…')).resolves.toBe(false);
+    await screen.show('HyperSight\nConnected · TESTNET');
+    expect(calls.map((c) => c.method)).toEqual(['rebuild']);
+  });
 });

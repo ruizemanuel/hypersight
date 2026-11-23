@@ -61,23 +61,38 @@ export class Session extends EventEmitter {
     return items.sort((a, b) => seqOf(a) - seqOf(b));
   }
 
-  /** Binds a new connection (closing any previous one), welcomes it and replays what it missed. */
-  attach(socket: SessionSocket, lastSeq?: number): void {
+  /**
+   * Binds a new connection (closing any previous one), welcomes it and replays what it missed.
+   * A cursor from another session (`knownSessionId` mismatch) or ahead of this one (the server
+   * restarted) means unknown history, so the whole snapshot is replayed.
+   */
+  attach(socket: SessionSocket, lastSeq?: number, knownSessionId?: string): void {
     const previous = this.socket;
     this.socket = socket;
     if (previous && previous !== socket)
       previous.close(CLOSE_REPLACED, 'replaced by a new connection');
-    const missed = this.snapshot().filter((m) => seqOf(m) > (lastSeq ?? 0));
+    const foreign = knownSessionId !== undefined && knownSessionId !== this.id;
+    const cursor = foreign || (lastSeq ?? 0) > this.seq ? 0 : (lastSeq ?? 0);
+    const missed = this.snapshot().filter((m) => seqOf(m) > cursor);
     this.send({ t: 'welcome', sessionId: this.id });
     for (const m of missed) this.write(m);
-    this.emit('attach');
+    this.safeEmit('attach');
   }
 
   /** Unbinds `socket` if it is still the current connection (stale detaches are ignored). */
   detach(socket: SessionSocket): void {
     if (this.socket !== socket) return;
     this.socket = null;
-    this.emit('detach');
+    this.safeEmit('detach');
+  }
+
+  /** Listeners run inside socket handlers: a throwing listener must not crash the server. */
+  private safeEmit(event: 'attach' | 'detach'): void {
+    try {
+      this.emit(event);
+    } catch (err) {
+      console.error(`session ${event} listener failed:`, err instanceof Error ? err.message : err);
+    }
   }
 
   private write(msg: ServerMsg): void {

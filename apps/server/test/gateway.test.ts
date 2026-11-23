@@ -20,7 +20,9 @@ type Harness = {
 
 let harness: Harness | null = null;
 
-async function start(opts: { helloTimeoutMs?: number } = {}): Promise<Harness> {
+async function start(
+  opts: { helloTimeoutMs?: number; heartbeatMs?: number } = {},
+): Promise<Harness> {
   const app = createApp({ sessionToken: TOKEN });
   const server = await new Promise<Server>((resolve) => {
     const s = serve({ fetch: app.fetch, port: 0, hostname: '127.0.0.1' }, () =>
@@ -60,9 +62,9 @@ afterEach(async () => {
   harness = null;
 });
 
-function connect(url: string): Promise<WebSocket> {
+function connect(url: string, opts: WebSocket.ClientOptions = {}): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
+    const ws = new WebSocket(url, opts);
     ws.once('open', () => resolve(ws));
     ws.once('error', reject);
   });
@@ -168,6 +170,41 @@ describe('startGateway', () => {
       { t: 'welcome', sessionId: s.id, seq: 3 },
       { t: 'overlay', seq: 2, overlay: { kind: 'thinking' } },
     ]);
+    ws.close();
+  });
+
+  it('replays everything to a client that resumes an unknown session id', async () => {
+    const h = await start();
+    const first = await hello(h);
+    first.ws.send(JSON.stringify({ t: 'dismiss' }));
+    await expect.poll(() => h.received.length).toBe(1);
+    const s = h.received[0]?.session as Session;
+    s.send({ t: 'overlay', overlay: { kind: 'thinking' } });
+    first.ws.close();
+    await expect.poll(() => s.attached).toBe(false);
+    const ws = await connect(`${h.url}/ws`);
+    const msgs: ServerMsg[] = [];
+    ws.on('message', (d) => msgs.push(JSON.parse(String(d))));
+    ws.send(JSON.stringify({ t: 'hello', token: TOKEN, lastSeq: 2, sessionId: 'previous-server' }));
+    await expect.poll(() => msgs.length).toBe(2);
+    expect(msgs.map((m) => m.t)).toEqual(['welcome', 'overlay']);
+    ws.close();
+  });
+
+  it('terminates a connection that stops answering heartbeat pings', async () => {
+    const h = await start({ heartbeatMs: 100 });
+    const ws = await connect(`${h.url}/ws`, { autoPong: false });
+    const done = closed(ws);
+    ws.send(JSON.stringify({ t: 'hello', token: TOKEN }));
+    const { at } = await done;
+    expect(at).toBeGreaterThan(0);
+  });
+
+  it('keeps a connection that answers heartbeat pings', async () => {
+    const h = await start({ heartbeatMs: 100 });
+    const { ws } = await hello(h);
+    await new Promise((r) => setTimeout(r, 450));
+    expect(ws.readyState).toBe(WebSocket.OPEN);
     ws.close();
   });
 });

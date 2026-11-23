@@ -9,7 +9,7 @@ class FakeWebSocket {
   binaryType = 'blob';
   sent: (string | Uint8Array)[] = [];
   onopen: (() => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((ev: { code?: number }) => void) | null = null;
   onerror: (() => void) | null = null;
   onmessage: ((ev: { data: unknown }) => void) | null = null;
   constructor(readonly url: string) {
@@ -18,9 +18,9 @@ class FakeWebSocket {
   send(data: string | Uint8Array): void {
     this.sent.push(data);
   }
-  close(): void {
+  close(code?: number): void {
     this.readyState = 3;
-    this.onclose?.();
+    this.onclose?.({ code });
   }
   // test helpers
   open(): void {
@@ -73,7 +73,122 @@ describe('HudSocket', () => {
     vi.advanceTimersByTime(500);
     const second = FakeWebSocket.instances[1] as FakeWebSocket;
     second.open();
-    expect(second.json()[0]).toEqual({ t: 'hello', token: 'tok', lastSeq: 3 });
+    expect(second.json()[0]).toEqual({ t: 'hello', token: 'tok', lastSeq: 3, sessionId: 'x' });
+  });
+
+  it('does not advance the resume cursor on welcome (a drop before the replay loses nothing)', () => {
+    const s = make();
+    s.connect();
+    const first = FakeWebSocket.instances[0] as FakeWebSocket;
+    first.open();
+    first.push({ t: 'welcome', sessionId: 'x', seq: 1 });
+    first.push({ t: 'deck', seq: 3, cards: [] });
+    first.close();
+    vi.advanceTimersByTime(500);
+    const second = FakeWebSocket.instances[1] as FakeWebSocket;
+    second.open();
+    // server welcomes with seq 5, then the link drops before the replayed overlay #4 arrives
+    second.push({ t: 'welcome', sessionId: 'x', seq: 5 });
+    second.close();
+    vi.advanceTimersByTime(500);
+    const third = FakeWebSocket.instances[2] as FakeWebSocket;
+    third.open();
+    expect(third.json()[0]).toMatchObject({ lastSeq: 3, sessionId: 'x' });
+  });
+
+  it('resets the resume cursor when the server reports a new session', () => {
+    const s = make();
+    s.connect();
+    const first = FakeWebSocket.instances[0] as FakeWebSocket;
+    first.open();
+    first.push({ t: 'welcome', sessionId: 'old', seq: 1 });
+    first.push({ t: 'deck', seq: 4000, cards: [] });
+    first.close();
+    vi.advanceTimersByTime(500);
+    const second = FakeWebSocket.instances[1] as FakeWebSocket;
+    second.open();
+    expect(second.json()[0]).toEqual({ t: 'hello', token: 'tok', lastSeq: 4000, sessionId: 'old' });
+    second.push({ t: 'welcome', sessionId: 'new', seq: 1 });
+    second.push({ t: 'overlay', seq: 2, overlay: null });
+    second.close();
+    vi.advanceTimersByTime(500);
+    const third = FakeWebSocket.instances[2] as FakeWebSocket;
+    third.open();
+    expect(third.json()[0]).toEqual({ t: 'hello', token: 'tok', lastSeq: 2, sessionId: 'new' });
+  });
+
+  it('stops reconnecting when replaced by another device, until asked to reconnect', () => {
+    const s = make();
+    const statuses: string[] = [];
+    s.onStatus((st) => statuses.push(st));
+    s.connect();
+    FakeWebSocket.instances[0]?.open();
+    FakeWebSocket.instances[0]?.close(4000);
+    vi.advanceTimersByTime(30_000);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(statuses.at(-1)).toBe('replaced');
+    s.reconnect();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+  });
+
+  it('stops reconnecting on an authentication failure', () => {
+    const s = make();
+    const statuses: string[] = [];
+    s.onStatus((st) => statuses.push(st));
+    s.connect();
+    FakeWebSocket.instances[0]?.open();
+    FakeWebSocket.instances[0]?.close(4401);
+    vi.advanceTimersByTime(30_000);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(statuses.at(-1)).toBe('unauthorized');
+  });
+
+  it('abandons a silent socket and reconnects (half-open link)', () => {
+    const s = make();
+    const statuses: string[] = [];
+    s.onStatus((st) => statuses.push(st));
+    s.connect();
+    const ws = FakeWebSocket.instances[0] as FakeWebSocket;
+    ws.open();
+    vi.advanceTimersByTime(61_000);
+    expect(FakeWebSocket.instances.length).toBeGreaterThanOrEqual(2);
+    expect(statuses).toContain('closed');
+    expect(s.send({ t: 'dismiss' })).toBe(false);
+  });
+
+  it('keeps a socket that keeps answering', () => {
+    const s = make();
+    s.connect();
+    const ws = FakeWebSocket.instances[0] as FakeWebSocket;
+    ws.open();
+    for (let i = 0; i < 6; i++) {
+      vi.advanceTimersByTime(20_000);
+      ws.push({ t: 'pong' });
+    }
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it('probes the link on demand and reconnects when nothing answers', () => {
+    const s = make();
+    s.connect();
+    const ws = FakeWebSocket.instances[0] as FakeWebSocket;
+    ws.open();
+    s.probe();
+    expect(ws.json().at(-1)).toEqual({ t: 'ping' });
+    vi.advanceTimersByTime(5_100);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+  });
+
+  it('keeps the socket when a probe is answered', () => {
+    const s = make();
+    s.connect();
+    const ws = FakeWebSocket.instances[0] as FakeWebSocket;
+    ws.open();
+    s.probe();
+    vi.advanceTimersByTime(1_000);
+    ws.push({ t: 'pong' });
+    vi.advanceTimersByTime(5_000);
+    expect(FakeWebSocket.instances).toHaveLength(1);
   });
 
   it('doubles the reconnect delay up to 8 s and resets it after a successful open', () => {
