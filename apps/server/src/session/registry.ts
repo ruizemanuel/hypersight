@@ -8,7 +8,10 @@ export class SessionRegistry {
   private readonly tokens: Buffer[];
   private readonly sessions = new Map<string, Session>();
 
-  constructor(tokens: string[]) {
+  constructor(
+    tokens: string[],
+    private readonly opts: { onCreate?: (s: Session) => void } = {},
+  ) {
     this.tokens = tokens.map(digest);
   }
 
@@ -27,6 +30,7 @@ export class SessionRegistry {
     if (!s) {
       s = new Session(randomUUID());
       this.sessions.set(token, s);
+      this.opts.onCreate?.(s);
     }
     return s;
   }

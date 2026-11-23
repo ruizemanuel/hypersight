@@ -187,9 +187,15 @@ importers:
       '@evenrealities/even_hub_sdk':
         specifier: 0.0.16
         version: 0.0.16
+      '@evenrealities/pretext':
+        specifier: 0.1.4
+        version: 0.1.4
       '@hypersight/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
     devDependencies:
       vite:
         specifier: 8.3.8
@@ -474,6 +480,9 @@ packages:
   '@evenrealities/even_hub_sdk@0.0.16':
     resolution: {integrity: sha512-8/qMR4W3vna6xAM5/dFDmKoTR98D7Vo3TDBrtS0JgdUSvBVyAnUXuhODI3H587fI2TfLbp4T+FNT3EdkB3+Big==}
     engines: {node: ^20.0.0 || >=22.0.0}
+
+  '@evenrealities/pretext@0.1.4':
+    resolution: {integrity: sha512-gSZk/uxIhZW3geOM5bP1IS0s1sg7cA7KLLpBDgH9T1+ZNHMIFTMcgQN1qw4+/Xi/rcxsDsWZ7UZndIS/s4fRcA==}
 
   '@hono/node-server@2.1.11':
     resolution: {integrity: sha512-KzKz9vl4vvr1vgLHamj+g5uonbrj5NwAdO3yzOS6cd2HjALVeOgTgeZOyAzNxejbkfOOPIcvuf/Tg8l1pEFLog==}
@@ -1159,6 +1168,8 @@ snapshots:
     optional: true
 
   '@evenrealities/even_hub_sdk@0.0.16': {}
+
+  '@evenrealities/pretext@0.1.4': {}
 
   '@hono/node-server@2.1.11(hono@4.13.19)':
     dependencies:

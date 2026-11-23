@@ -1,11 +1,20 @@
 import { waitForEvenAppBridge } from '@evenrealities/even_hub_sdk';
-import { createMainScreen } from './bridge/pages';
+import { createPageRenderer } from './bridge/pages';
 import { createBridgeQueue } from './bridge/queue';
-import { createInputNormalizer, type InputEvent } from './input/normalize';
-import { HudSocket, type SocketStatus } from './net/socket';
+import { createInputNormalizer } from './input/normalize';
+import { HudSocket } from './net/socket';
 import { loadToken, saveToken, type TokenStorage } from './net/token';
+import {
+  createDeckCache,
+  type Effect,
+  type HudEvent,
+  type HudState,
+  initialHudState,
+  pageFor,
+  step,
+} from './state/hud-state';
 
-const EXIT_CARD = 'Exit HyperSight?\n\nTAP exit · 2×TAP stay';
+const LIVE_DEBOUNCE_MS = 120;
 
 function serverWsUrl(): string {
   const configured = import.meta.env.VITE_SERVER_WS as string | undefined;
@@ -38,98 +47,101 @@ function showTokenForm(storage: TokenStorage): void {
   app.appendChild(form);
 }
 
+const PHONE_STATUS: Record<HudState['status'], string> = {
+  connecting: 'Connecting to the server…',
+  open: 'Connected · check the glasses display.',
+  closed: 'Connection lost, retrying…',
+  replaced: 'HyperSight was opened on another device.',
+  unauthorized: 'The server refused the token. Paste the current one below.',
+  setup: 'Setup needed: paste the server token (SESSION_TOKEN) below.',
+};
+
 async function boot(): Promise<void> {
   phoneStatus('Waiting for the glasses…');
   const bridge = await waitForEvenAppBridge();
   const queue = createBridgeQueue();
   const normalizer = createInputNormalizer();
-  const screen = createMainScreen(bridge, queue, () => normalizer.markTextUpdate(Date.now()));
+  const renderer = createPageRenderer(bridge, queue, () => normalizer.markTextUpdate(Date.now()));
   const storage: TokenStorage = {
     get: (k) => bridge.getLocalStorage(k),
     set: (k, v) => bridge.setLocalStorage(k, v),
   };
+  const deckCache = createDeckCache(storage);
 
-  let statusText = 'HyperSight\nConnecting…';
-  let view: 'status' | 'exit' = 'status';
-  let exiting = false;
+  let state: HudState = initialHudState;
   let socket: HudSocket | null = null;
-  let linkDown: 'replaced' | 'unauthorized' | null = null;
-  const render = () => screen.show(view === 'exit' ? EXIT_CARD : statusText).catch(() => {});
+  let liveTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const onInput = (input: InputEvent): void => {
-    if (exiting) {
-      // The system exit dialog is up: FOREGROUND_EXIT means the user answered "No".
-      if (input.type === 'foregroundExit') {
-        exiting = false;
-        view = 'status';
-        void render();
-      }
-      return;
-    }
-    if (input.type === 'foregroundEnter') socket?.probe();
-    if (input.type === 'doubleTap') {
-      // Root double tap opens our own Exit card: cancelling the system exit dialog is known to
-      // break the mic and image updates until restart (Even Discord, Nov 2026).
-      view = view === 'exit' ? 'status' : 'exit';
-      void render();
-      return;
-    }
-    if (input.type === 'tap' && view === 'exit') {
-      exiting = true;
+  const render = (): void => {
+    if (liveTimer) clearTimeout(liveTimer);
+    liveTimer = null;
+    void renderer.render(pageFor(state, Date.now()));
+  };
+  /** Server pushes are debounced so bursts become one BLE write. */
+  const renderSoon = (): void => {
+    if (!liveTimer) liveTimer = setTimeout(render, LIVE_DEBOUNCE_MS);
+  };
+
+  const runEffect = (e: Effect): void => {
+    if (e.type === 'send') socket?.send(e.msg);
+    else if (e.type === 'reconnect') socket?.reconnect();
+    else if (e.type === 'probe') socket?.probe();
+    else if (e.type === 'exit') {
       void queue
         .run(() => bridge.shutDownPageContainer(1))
-        .catch(() => {
-          exiting = false;
-        });
-      return;
-    }
-    if (input.type === 'tap' && linkDown === 'replaced') {
-      linkDown = null;
-      socket?.reconnect();
+        .then((ok) => {
+          if (!ok) dispatch({ type: 'exitFailed' });
+        })
+        .catch(() => dispatch({ type: 'exitFailed' }));
     }
   };
+
+  function dispatch(ev: HudEvent, live = false): void {
+    const prevStatus = state.status;
+    const r = step(state, ev);
+    state = r.state;
+    for (const e of r.effects) runEffect(e);
+    if (state.status !== prevStatus) phoneStatus(PHONE_STATUS[state.status]);
+    if (live) renderSoon();
+    else render();
+  }
+
   bridge.onEvenHubEvent((event) => {
     const input = normalizer.normalize(event, Date.now());
-    if (input) onInput(input);
+    if (input) dispatch(input);
   });
 
-  await screen.start(statusText);
+  // Countdown (confirm) and elapsed time (listening) tick once a second: footer/body upgrades only.
+  setInterval(() => {
+    const kind = state.overlay?.kind;
+    if (kind === 'confirm' || kind === 'listening') render();
+  }, 1000);
+
+  render(); // creates the startup page ("Connecting…")
+  const cached = await deckCache.load();
+  if (cached) dispatch({ type: 'deck', cards: cached });
 
   const devToken = (import.meta.env.VITE_SESSION_TOKEN as string | undefined) ?? '';
   const token = await loadToken(devToken, storage).catch(() => null);
   if (!token) {
-    statusText = 'HyperSight\nSetup: paste your server token\non the phone screen';
-    phoneStatus('Setup needed: paste the server token (SESSION_TOKEN) below.');
     showTokenForm(storage);
-    await render();
+    dispatch({ type: 'status', status: 'setup' });
     return;
   }
 
   socket = new HudSocket(serverWsUrl(), token);
-  socket.onStatus((s: SocketStatus) => {
-    if (s === 'open') return; // wait for `welcome`
-    if (s === 'replaced') {
-      linkDown = 'replaced';
-      statusText = 'HyperSight\nOpened on another device\nTAP to reconnect';
-      phoneStatus('HyperSight was opened on another device.');
-    } else if (s === 'unauthorized') {
-      linkDown = 'unauthorized';
-      statusText = 'HyperSight\nToken refused\nCheck setup on the phone';
-      phoneStatus('The server refused the token. Paste the current one below.');
-      showTokenForm(storage);
-    } else {
-      statusText = s === 'connecting' ? 'HyperSight\nConnecting…' : 'HyperSight\nReconnecting…';
-      phoneStatus(s === 'connecting' ? 'Connecting to the server…' : 'Connection lost, retrying…');
-    }
-    void render();
+  socket.onStatus((s) => {
+    if (s === 'open') return; // the session is live once `welcome` arrives
+    if (s === 'unauthorized') showTokenForm(storage);
+    dispatch({ type: 'status', status: s });
   });
   socket.onMessage((m) => {
-    if (m.t === 'welcome') {
-      linkDown = null;
-      statusText = 'HyperSight\nConnected · TESTNET';
-      phoneStatus('Connected · TESTNET. Check the glasses display.');
-      void render();
-    }
+    if (m.t === 'welcome') dispatch({ type: 'status', status: 'open' });
+    else if (m.t === 'deck') {
+      deckCache.save(m.cards);
+      dispatch({ type: 'deck', cards: m.cards }, true);
+    } else if (m.t === 'overlay') dispatch({ type: 'overlay', overlay: m.overlay, at: Date.now() });
+    else if (m.t === 'error') console.warn(`[server] ${m.code}: ${m.message}`);
   });
   socket.connect();
 }

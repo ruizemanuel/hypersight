@@ -1,9 +1,20 @@
 import type { Server } from 'node:http';
 import { serve } from '@hono/node-server';
+import { DEFAULT_PRESETS } from '@hypersight/protocol';
 import { type Config, ConfigError, loadConfig } from './config';
+import { buildDeck } from './deck/build-deck';
+import { createDeckPublisher } from './deck/publisher';
+import { createHlClients } from './hl/clients';
+import { parsePerpMeta } from './hl/ids';
+import { MarketStream } from './hl/market-stream';
+import { Catalogue, type OutcomeMarket } from './hl/outcomes';
 import { createApp } from './http/app';
 import { SessionRegistry } from './session/registry';
 import { startGateway } from './ws/gateway';
+
+const MARKET_RETRY_MS = 5000;
+/** Default watchlist until Task 14 persists it. */
+const DEFAULT_WATCH = ['rb:BTC:1d', 'rb:ETH:1d'];
 
 function log(msg: string, err?: unknown): void {
   const ts = new Date().toISOString();
@@ -29,8 +40,35 @@ function main(): void {
     log('[voice] ELEVENLABS_API_KEY not set: voice disabled, tap actions only');
   if (!cfg.anthropicKey) log('[intent] ANTHROPIC_API_KEY not set: fast grammar only');
 
+  const hl = createHlClients(cfg);
+  const catalogue = new Catalogue();
+  const badge = cfg.executor === 'paper' ? 'PAPER' : 'TESTNET';
+  let stream: MarketStream | null = null;
+
+  const watched = (): OutcomeMarket[] =>
+    DEFAULT_WATCH.map((k) => catalogue.byKey(k)).filter((m): m is OutcomeMarket => m !== undefined);
+
+  const publisher = createDeckPublisher({
+    build: () => {
+      if (!stream) throw new Error('market data not ready yet');
+      return buildDeck({
+        view: stream.view(),
+        watch: watched(),
+        mids: stream.mids(),
+        presets: DEFAULT_PRESETS,
+        badge,
+        now: Date.now(),
+      });
+    },
+    sessions: () => registry.all().filter((s) => s.attached),
+    onError: (err) => log('[deck] not published', err),
+  });
+
+  const registry = new SessionRegistry([cfg.sessionToken], {
+    onCreate: (session) => session.on('attach', () => publisher.publishTo(session)),
+  });
+
   const app = createApp({ sessionToken: cfg.sessionToken });
-  const registry = new SessionRegistry([cfg.sessionToken]);
   const server = serve({ fetch: app.fetch, port: cfg.port, hostname: '0.0.0.0' }, (info) =>
     log(`[http] listening on :${info.port} · executor ${cfg.executor} · Hyperliquid testnet`),
   ) as Server;
@@ -45,9 +83,40 @@ function main(): void {
     { log },
   );
 
+  async function startMarket(): Promise<void> {
+    const user = cfg.accountAddress as `0x${string}`;
+    try {
+      const [meta, abstraction] = await Promise.all([
+        hl.info.meta(),
+        hl.info.userAbstraction({ user }),
+      ]);
+      await catalogue.load(hl.info);
+      const s = new MarketStream({
+        info: hl.info,
+        subs: hl.subs,
+        user,
+        catalogue,
+        perpMeta: parsePerpMeta(meta),
+        abstraction,
+      });
+      s.on('view', () => publisher.publish());
+      s.on('outcomeMeta', () => publisher.publish());
+      await s.start();
+      stream = s;
+      log(`[hl] live: ${abstraction} account, ${catalogue.all().length} outcome markets`);
+      publisher.publish();
+    } catch (err) {
+      log(`[hl] market data unavailable, retrying in ${MARKET_RETRY_MS / 1000}s`, err);
+      setTimeout(() => void startMarket(), MARKET_RETRY_MS).unref();
+    }
+  }
+  void startMarket();
+
   const shutdown = (signal: string) => {
     log(`[server] ${signal} received, shutting down`);
-    void gateway.close().finally(() => server.close(() => process.exit(0)));
+    void Promise.allSettled([stream?.stop(), gateway.close()])
+      .then(() => hl.close())
+      .finally(() => server.close(() => process.exit(0)));
     setTimeout(() => process.exit(0), 3000).unref();
   };
   process.once('SIGINT', () => shutdown('SIGINT'));
