@@ -10,9 +10,21 @@ import { MarketStream } from './hl/market-stream';
 import { Catalogue, type OutcomeMarket } from './hl/outcomes';
 import { createApp } from './http/app';
 import { SessionRegistry } from './session/registry';
+import { ElevenLabsStream } from './voice/elevenlabs';
+import { VoiceRouter } from './voice/router';
 import { startGateway } from './ws/gateway';
 
 const MARKET_RETRY_MS = 5000;
+const STATIC_KEYTERMS = [
+  'Hyperliquid',
+  'BTC',
+  'ETH',
+  'SOL',
+  'HYPE',
+  'Bitcoin',
+  'Ethereum',
+  'Solana',
+];
 /** Default watchlist until Task 14 persists it. */
 const DEFAULT_WATCH = ['rb:BTC:1d', 'rb:ETH:1d'];
 
@@ -64,8 +76,29 @@ function main(): void {
     onError: (err) => log('[deck] not published', err),
   });
 
+  const elevenLabsKey = cfg.elevenLabsKey;
+  const voice = new VoiceRouter({
+    factory: elevenLabsKey
+      ? (opts) => new ElevenLabsStream({ apiKey: elevenLabsKey, ...opts })
+      : null,
+    // Static until Task 12 builds keyterms from the intent context (tickers + market aliases).
+    keyterms: () => STATIC_KEYTERMS,
+    onTranscript: async (session, text) => {
+      log(`[voice ${session.id.slice(0, 8)}] "${text}"`);
+      // Task 13 turns the transcript into an intent; until then echo what was heard.
+      session.send({
+        t: 'overlay',
+        overlay: { kind: 'result', ok: true, title: 'Heard', lines: [text] },
+      });
+    },
+    log,
+  });
+
   const registry = new SessionRegistry([cfg.sessionToken], {
-    onCreate: (session) => session.on('attach', () => publisher.publishTo(session)),
+    onCreate: (session) => {
+      session.on('attach', () => publisher.publishTo(session));
+      session.on('detach', () => voice.drop(session));
+    },
   });
 
   const app = createApp({ sessionToken: cfg.sessionToken });
@@ -77,8 +110,12 @@ function main(): void {
     server,
     registry,
     {
-      onClientMsg: (session, msg) => log(`[ws ${session.id.slice(0, 8)}] ${msg.t}`),
-      onAudio: () => {},
+      onClientMsg: async (session, msg) => {
+        log(`[ws ${session.id.slice(0, 8)}] ${msg.t}${msg.t === 'voice' ? ` ${msg.phase}` : ''}`);
+        if (msg.t === 'voice' && msg.phase === 'start') voice.start(session);
+        else if (msg.t === 'voice' && msg.phase === 'end') await voice.end(session);
+      },
+      onAudio: (session, pcm) => voice.audio(session, pcm),
     },
     { log },
   );
