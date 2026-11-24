@@ -9,7 +9,12 @@
     {
       "name": "network",
       "desc": "Connects to the HyperSight server for live Hyperliquid testnet data and trading.",
-      "whitelist": ["http://localhost:8787", "ws://localhost:8787"]
+      "whitelist": [
+        "https://hypersight.fly.dev",
+        "wss://hypersight.fly.dev",
+        "http://localhost:8787",
+        "ws://localhost:8787"
+      ]
     },
     {
       "name": "g2-microphone",

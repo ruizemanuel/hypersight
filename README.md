@@ -71,6 +71,8 @@ Checks: `pnpm lint && pnpm typecheck && pnpm test`. `pnpm e2e` runs the whole st
 
 Container: the `Dockerfile` builds the server bundle and the link page (SQLite lives on the `/data` volume, configured through the same environment variables); `fly.toml` deploys it to Fly.io.
 
+Glasses package: `VITE_SERVER_WS=wss://<your-host>/ws pnpm --filter @hypersight/hud build`, then `evenhub pack apps/hud/app.json apps/hud/dist -o hypersight.ehpk --sdk-ver 0.0.16`. The host must be in the network whitelist of `apps/hud/app.json`; the package never contains a token (the glasses pair with a code).
+
 ## Repository layout
 
 | Path | What |
