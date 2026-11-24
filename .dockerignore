@@ -1,0 +1,18 @@
+# Never in the image: secrets, local data, builds, tooling scratch
+.env
+.env.*
+!.env.example
+**/node_modules
+**/dist
+data
+**/*.sqlite*
+tmp
+.git
+.github
+.vscode
+.idea
+.superpowers
+.playwright-mcp
+docs/superpowers
+*.ehpk
+*.log

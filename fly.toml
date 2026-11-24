@@ -1,0 +1,32 @@
+# Fly.io config for the HyperSight server (Hyperliquid testnet only). `fly launch --no-deploy`
+# picks the final app name; secrets go in with `fly secrets set` (never in this file).
+app = 'hypersight'
+primary_region = 'gru'
+
+[build]
+
+[env]
+  PORT = '8787'
+  DB_PATH = '/data/hypersight.sqlite'
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = '20s'
+    interval = '30s'
+    method = 'GET'
+    path = '/health'
+    timeout = '5s'
+
+[[mounts]]
+  source = 'data'
+  destination = '/data'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '512mb'
