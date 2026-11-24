@@ -1,5 +1,6 @@
 import type { AlertRule, Settings } from '@hypersight/protocol';
 import type { CompanionApi } from './api';
+import { buildRule, describeRule, type RuleForm } from './rules';
 import { button, field, fmtMs, fmtTime, h, section } from './views';
 
 const STATUS_REFRESH_MS = 5000;
@@ -41,7 +42,8 @@ export function mountCompanion(
   // Watchlist
   const watchList = h('ul', { class: 'list' });
   const results = h('ul', { class: 'list results' });
-  const renderWatch = (keys: string[]) =>
+  const renderWatch = (keys: string[]) => {
+    renderOddsMarkets(keys);
     watchList.replaceChildren(
       ...keys.map((k) =>
         h(
@@ -57,6 +59,7 @@ export function mountCompanion(
       ),
       ...(keys.length === 0 ? [h('li', { class: 'muted' }, 'Nothing watched yet')] : []),
     );
+  };
   let searchTimer: ReturnType<typeof setTimeout> | null = null;
   const search = h('input', {
     type: 'search',
@@ -161,24 +164,14 @@ export function mountCompanion(
 
   // Rules
   const rulesList = h('ul', { class: 'list' });
-  const describeRule = (r: AlertRule): string => {
-    const p = r.params;
-    switch (r.kind) {
-      case 'priceCross':
-        return `${p.coin} ${p.dir === 'below' ? 'below' : 'above'} ${p.px}`;
-      case 'oddsMove':
-        return `${p.marketKey} moves ${p.points} pts`;
-      case 'pnlPct':
-        return `${p.coin} PnL ${p.pct}%`;
-      case 'liqDistance':
-        return `Liquidation closer than ${p.pct}%`;
-      case 'fill':
-        return 'Resting order filled';
-      case 'settled':
-        return 'Held outcome settled';
+  let rulesNow: AlertRule[] = [];
+  const liqPct = field('Warn when closer than (%)', '10');
+  const renderRules = (rules: AlertRule[]) => {
+    rulesNow = rules;
+    const liq = rules.find((r) => r.kind === 'liqDistance');
+    if (liq && document.activeElement !== liqPct.input) {
+      liqPct.input.value = String(liq.params.pct ?? 10);
     }
-  };
-  const renderRules = (rules: AlertRule[]) =>
     rulesList.replaceChildren(
       ...rules.map((r) => {
         const toggle = h('input', {
@@ -202,27 +195,93 @@ export function mountCompanion(
         );
       }),
     );
+  };
+  const saveRule = (form: RuleForm, what: string, current?: AlertRule) => {
+    const built = buildRule(form, current);
+    if ('error' in built) return say(built.error);
+    void api.saveRule(built.rule).then(
+      () => {
+        say(`${what} saved`);
+        return api.rules().then(renderRules);
+      },
+      fail(`save the ${what.toLowerCase()}`),
+    );
+  };
+  const select = (label: string, options: [value: string, text: string][]) => {
+    const el = h('select', {}, ...options.map(([value, text]) => h('option', { value }, text)));
+    return { row: h('label', { class: 'field' }, h('span', {}, label), el), el };
+  };
+
+  // Price alert
   const coin = field('Coin', 'ETH', { type: 'text' });
   const px = field('Price', '');
-  const dir = h(
-    'select',
-    {},
-    h('option', { value: 'above' }, 'above'),
-    h('option', { value: 'below' }, 'below'),
+  const dir = select('When', [
+    ['above', 'above'],
+    ['below', 'below'],
+  ]);
+  const addPrice = button('Add price alert', () =>
+    saveRule(
+      {
+        kind: 'price',
+        coin: coin.input.value,
+        px: px.input.value,
+        dir: dir.el.value === 'below' ? 'below' : 'above',
+      },
+      'Price alert',
+    ),
   );
-  const addRule = button('Add price alert', () => {
-    const c = coin.input.value.trim().toUpperCase();
-    const price = Number(px.input.value);
-    if (!c || !(price > 0)) return say('Enter a coin and a price');
-    const rule: AlertRule = {
-      id: `price-${c}-${dir.value}-${price}`.slice(0, 64),
-      kind: 'priceCross',
-      params: { coin: c, px: price, dir: dir.value },
-      cooldownMs: 600_000,
-      enabled: true,
-    };
-    void api.saveRule(rule).then(() => api.rules().then(renderRules), fail('add the alert'));
+
+  // PnL alert, with the quick action the alert offers (always behind a confirm on the glasses)
+  const pnlCoin = field('Coin', 'ETH', { type: 'text' });
+  const pnlPct = field('PnL move (%)', '5', { hint: 'Negative for a loss' });
+  const pnlAction = select('Then offer', [
+    ['half', 'take half'],
+    ['close', 'close all'],
+    ['none', 'nothing'],
+  ]);
+  const addPnl = button('Add PnL alert', () => {
+    const action = pnlAction.el.value;
+    saveRule(
+      {
+        kind: 'pnl',
+        coin: pnlCoin.input.value,
+        pct: pnlPct.input.value,
+        action: action === 'close' || action === 'none' ? action : 'half',
+      },
+      'PnL alert',
+    );
   });
+
+  // Odds move on a watched market
+  const oddsMarket = select('Market', []);
+  const oddsPoints = field('Moves (pts)', '8', { step: '1' });
+  const oddsMinutes = field('Within (min)', '10', { step: '1' });
+  const renderOddsMarkets = (keys: string[]) =>
+    oddsMarket.el.replaceChildren(
+      ...(keys.length === 0
+        ? [h('option', { value: '' }, 'Watch a market first')]
+        : keys.map((k) => h('option', { value: k }, k))),
+    );
+  const addOdds = button('Add odds alert', () =>
+    saveRule(
+      {
+        kind: 'odds',
+        marketKey: oddsMarket.el.value,
+        points: oddsPoints.input.value,
+        minutes: oddsMinutes.input.value,
+      },
+      'Odds alert',
+    ),
+  );
+
+  // Liquidation distance (edits the existing warning)
+  const saveLiq = button('Save', () =>
+    saveRule(
+      { kind: 'liq', pct: liqPct.input.value },
+      'Liquidation warning',
+      rulesNow.find((r) => r.kind === 'liqDistance'),
+    ),
+  );
 
   // History
   const historyList = h('ul', { class: 'list history' });
@@ -249,14 +308,18 @@ export function mountCompanion(
     section(
       'Alerts',
       rulesList,
-      h(
-        'div',
-        { class: 'inline' },
-        coin.row,
-        h('label', { class: 'field' }, h('span', {}, 'When'), dir),
-        px.row,
-      ),
-      addRule,
+      h('h3', {}, 'Price'),
+      h('div', { class: 'inline' }, coin.row, dir.row, px.row),
+      addPrice,
+      h('h3', {}, 'PnL'),
+      h('div', { class: 'inline' }, pnlCoin.row, pnlPct.row, pnlAction.row),
+      addPnl,
+      h('h3', {}, 'Odds move'),
+      h('div', { class: 'inline' }, oddsMarket.row, oddsPoints.row, oddsMinutes.row),
+      addOdds,
+      h('h3', {}, 'Liquidation'),
+      h('div', { class: 'inline' }, liqPct.row),
+      saveLiq,
     ),
     section('History', historyList, button('Refresh', renderHistory, 'ghost')),
     h('p', { class: 'muted foot' }, 'Testnet only · the agent wallet cannot withdraw funds'),

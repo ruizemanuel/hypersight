@@ -50,6 +50,11 @@ body {
   color: var(--muted);
   margin: 0 0 8px;
 }
+.companion h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 14px 0 6px;
+}
 .companion .badge {
   background: var(--accent);
   color: #232323;
