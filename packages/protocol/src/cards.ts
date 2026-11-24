@@ -43,6 +43,8 @@ export const ProposalViewSchema = z.object({
   expiresAt: z.number(),
   /** Set when risk or sizing refused the action: the card shows the reason and offers no confirm. */
   blocked: z.string().optional(),
+  /** One extra line under the details: what was heard, or why the card was refreshed. */
+  note: z.string().max(120).optional(),
 });
 export type ProposalView = z.infer<typeof ProposalViewSchema>;
 

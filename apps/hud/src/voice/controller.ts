@@ -9,6 +9,8 @@ export type VoiceDeps = {
     sendAudio(pcm: Uint8Array): boolean;
   };
   now?: () => number;
+  /** The card on screen when listening starts (sent with `voice start` as focus). */
+  cardId?: () => string | undefined;
 };
 
 type Phase = 'idle' | 'starting' | 'listening' | 'stopping';
@@ -127,9 +129,21 @@ export class VoiceController {
       this.reset();
       return;
     }
+    const cardId = this.deps.cardId?.();
+    const sent = this.deps.socket.send({
+      t: 'voice',
+      phase: 'start',
+      ...(cardId ? { cardId } : {}),
+    });
+    if (!sent) {
+      // Offline: nothing would hear the audio, so do not pretend to listen.
+      await this.closeMic();
+      this.reset();
+      this.emitUnavailable('offline');
+      return;
+    }
     this.phase = 'listening';
     this.startedAt = this.now();
-    this.deps.socket.send({ t: 'voice', phase: 'start' });
     this.emit('listening', source);
     this.timer = setTimeout(() => void this.stop(), MAX_LISTEN_MS);
     if (this.stopRequested) await this.finish('end');

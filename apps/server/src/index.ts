@@ -1,26 +1,36 @@
 import type { Server } from 'node:http';
 import Anthropic from '@anthropic-ai/sdk';
 import { serve } from '@hono/node-server';
+import { privateKeyToAccount } from 'viem/accounts';
 import { type Config, ConfigError, loadConfig } from './config';
 import { buildDeck } from './deck/build-deck';
 import { createDeckPublisher } from './deck/publisher';
 import { createHlClients } from './hl/clients';
-import { parsePerpMeta } from './hl/ids';
+import { type PerpMeta, parsePerpMeta } from './hl/ids';
 import { MarketStream } from './hl/market-stream';
 import { Catalogue, type OutcomeMarket } from './hl/outcomes';
 import { createApp } from './http/app';
 import { buildIntentContext, keytermsFor } from './intent/aliases';
-import { describeIntent } from './intent/describe';
-import { type IntentContext, parseIntentFast } from './intent/grammar';
+import type { IntentContext } from './intent/grammar';
 import { resolveIntent } from './intent/resolve';
+import { type Focus, SessionController } from './session/controller';
 import { SessionRegistry } from './session/registry';
 import { openDb } from './store/db';
 import { createRepos } from './store/repos';
+import { type ExecResult, type Executor, FakeExecutor } from './trade/executor';
+import { PaperExecutor } from './trade/paper-executor';
+import { ProposalService } from './trade/proposals';
+import { loadUsdcToken, TestnetExecutor } from './trade/testnet-executor';
 import { ElevenLabsStream } from './voice/elevenlabs';
 import { VoiceRouter } from './voice/router';
 import { startGateway } from './ws/gateway';
 
 const MARKET_RETRY_MS = 5000;
+const NOT_READY: ExecResult = { status: 'error', message: 'Trading not ready yet — nothing sent' };
+
+const usdText = (n: number) => `$${n.toLocaleString('en-US')}`;
+const dateText = (ms: number) =>
+  new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
 function log(msg: string, err?: unknown): void {
   const ts = new Date().toISOString();
@@ -76,16 +86,63 @@ function main(): void {
   });
 
   const anthropic = cfg.anthropicKey ? new Anthropic({ apiKey: cfg.anthropicKey }) : null;
-  const intentContext = (): IntentContext =>
+  const intentContext = (focus?: Focus): IntentContext =>
     stream
-      ? buildIntentContext(stream.view(), catalogue, repos.watch.list())
+      ? buildIntentContext(stream.view(), catalogue, repos.watch.list(), focus ? { focus } : {})
       : {
           perpCoins: ['BTC', 'ETH', 'SOL', 'HYPE'],
           positions: [],
           outcomePositions: [],
           markets: [],
         };
-  const marketLookup = (key: string) => catalogue.byKey(key);
+
+  // Filled from `meta` once market data is up (shared by reference with proposals and executor).
+  const perpMeta: PerpMeta[] = [];
+  const user = cfg.accountAddress as `0x${string}`;
+  let executor: Executor | null = cfg.executor === 'fake' ? new FakeExecutor() : null;
+  const notReady = (): never => {
+    throw new Error('market data not ready yet');
+  };
+  const proposals = new ProposalService({
+    stream: {
+      view: () => stream?.view() ?? notReady(),
+      book: async (coin) => (stream ?? notReady()).book(coin),
+    },
+    catalogue,
+    repos,
+    executor: {
+      execute: async (plan) => (executor ? executor.execute(plan) : NOT_READY),
+      cancelAll: async () => (executor ? executor.cancelAll() : NOT_READY),
+    },
+    perpMeta,
+    network: 'testnet',
+    now: Date.now,
+  });
+
+  const agentAddress = cfg.agentPrivateKey
+    ? privateKeyToAccount(cfg.agentPrivateKey as `0x${string}`).address.toLowerCase()
+    : null;
+  async function modeInfo(): Promise<string[]> {
+    const risk = repos.settings.get().risk;
+    const limits = `Limits ${usdText(risk.maxOrderUsd)}/order · ${usdText(risk.maxDailyUsd)}/day`;
+    if (!agentAddress) return [`${cfg.executor} executor · no agent wallet`, limits];
+    try {
+      const agents = await hl.info.extraAgents({ user });
+      const a = agents.find((x) => x.address.toLowerCase() === agentAddress);
+      const agent = !a
+        ? 'Agent wallet not approved'
+        : a.validUntil
+          ? `Agent valid until ${dateText(a.validUntil)}`
+          : 'Agent wallet approved';
+      return [agent, limits, 'Agent cannot withdraw funds'];
+    } catch (err) {
+      log('[mode] agent lookup failed', err);
+      return ['Agent status unavailable', limits];
+    }
+  }
+
+  // The router hands transcripts to the controller, which is built right after it.
+  let controller: SessionController | null = null;
 
   const elevenLabsKey = cfg.elevenLabsKey;
   const voice = new VoiceRouter({
@@ -93,35 +150,36 @@ function main(): void {
       ? (opts) => new ElevenLabsStream({ apiKey: elevenLabsKey, ...opts })
       : null,
     keyterms: () => keytermsFor(intentContext()),
-    onTranscript: async (session, text) => {
-      const ctx = intentContext();
-      // The grammar answers instantly; show Thinking only while Claude works (≈ 2–3 s).
-      if (anthropic && !parseIntentFast(text, ctx)) {
-        session.send({ t: 'overlay', overlay: { kind: 'thinking' } });
-      }
-      const r = await resolveIntent(text, ctx, { client: anthropic, model: cfg.intentModel, log });
-      log(
-        `[intent ${session.id.slice(0, 8)}] "${text}" → ${r.source} ${Math.round(r.ms)}ms ${JSON.stringify(r.intent)}`,
-      );
-      // Task 17/19 turn the intent into a proposal; until then echo what was understood.
-      const understood = r.intent.kind !== 'unknown';
-      session.send({
-        t: 'overlay',
-        overlay: {
-          kind: 'result',
-          ok: understood,
-          title: understood ? 'Understood' : "Didn't understand",
-          lines: [describeIntent(r.intent, marketLookup), `"${text}"`],
-        },
-      });
+    onTranscript: async (session, text, timing) => {
+      await controller?.onTranscript(session, text, timing);
     },
     log,
   });
 
+  const sessionController = new SessionController({
+    proposals,
+    resolve: (text, ctx) =>
+      resolveIntent(text, ctx, { client: anthropic, model: cfg.intentModel, log }),
+    context: intentContext,
+    view: () => stream?.view() ?? null,
+    mids: () => stream?.mids() ?? {},
+    catalogue,
+    watch: repos.watch,
+    publish: () => publisher.publish(),
+    refresh: async () => {
+      await stream?.refresh();
+    },
+    modeInfo,
+    voice,
+    badge,
+    log,
+  });
+  controller = sessionController;
+
   const registry = new SessionRegistry([cfg.sessionToken], {
     onCreate: (session) => {
       session.on('attach', () => publisher.publishTo(session));
-      session.on('detach', () => voice.drop(session));
+      sessionController.attach(session);
     },
   });
 
@@ -136,9 +194,7 @@ function main(): void {
     {
       onClientMsg: async (session, msg) => {
         log(`[ws ${session.id.slice(0, 8)}] ${msg.t}${msg.t === 'voice' ? ` ${msg.phase}` : ''}`);
-        if (msg.t === 'voice' && msg.phase === 'start') voice.start(session);
-        else if (msg.t === 'voice' && msg.phase === 'end') await voice.end(session);
-        else if (msg.t === 'voice' && msg.phase === 'cancel') voice.cancel(session);
+        await sessionController.onClientMsg(session, msg);
       },
       onAudio: (session, pcm) => voice.audio(session, pcm),
     },
@@ -146,19 +202,19 @@ function main(): void {
   );
 
   async function startMarket(): Promise<void> {
-    const user = cfg.accountAddress as `0x${string}`;
     try {
       const [meta, abstraction] = await Promise.all([
         hl.info.meta(),
         hl.info.userAbstraction({ user }),
       ]);
       await catalogue.load(hl.info);
+      perpMeta.splice(0, perpMeta.length, ...parsePerpMeta(meta));
       const s = new MarketStream({
         info: hl.info,
         subs: hl.subs,
         user,
         catalogue,
-        perpMeta: parsePerpMeta(meta),
+        perpMeta,
         abstraction,
         log,
       });
@@ -166,6 +222,22 @@ function main(): void {
       s.on('outcomeMeta', () => publisher.publish());
       await s.start();
       stream = s;
+      if (cfg.executor === 'testnet' && hl.exchange && !executor) {
+        executor = new TestnetExecutor({
+          exchange: hl.exchange,
+          info: hl.info,
+          master: user,
+          usdcToken: await loadUsdcToken(hl.info),
+          perpMeta,
+          now: Date.now,
+        });
+      } else if (cfg.executor === 'paper' && !executor) {
+        executor = new PaperExecutor({
+          book: (coin) => s.book(coin),
+          ledger: repos.ledger,
+          now: Date.now,
+        });
+      }
       log(`[hl] live: ${abstraction} account, ${catalogue.all().length} outcome markets`);
       publisher.publish();
     } catch (err) {

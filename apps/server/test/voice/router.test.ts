@@ -30,17 +30,19 @@ function setup(final = 'close half my eth') {
     return s;
   };
   const transcripts: string[] = [];
+  const timings: { sttMs?: number }[] = [];
   const router = new VoiceRouter({
     factory,
     keyterms: () => ['ETH'],
-    onTranscript: async (_session, text) => {
+    onTranscript: async (_session, text, timing) => {
       transcripts.push(text);
+      timings.push(timing);
     },
   });
   const session = new Session('s1');
   const sent: ServerMsg[] = [];
   session.attach({ readyState: 1, send: (d) => sent.push(JSON.parse(d)), close: () => {} });
-  return { router, session, streams, transcripts, sent };
+  return { router, session, streams, transcripts, timings, sent };
 }
 
 beforeEach(() => {
@@ -60,6 +62,13 @@ describe('VoiceRouter', () => {
     expect(streams[0]?.opts.keyterms).toEqual(['ETH']);
     expect(streams[0]?.audio).toEqual([Buffer.from([1, 2])]);
     expect(transcripts).toEqual(['close half my eth']);
+  });
+
+  it('measures voice end → final transcript for the stage timings', async () => {
+    const { router, session, timings } = setup();
+    router.start(session);
+    await router.end(session);
+    expect(timings[0]?.sttMs).toBeGreaterThanOrEqual(0);
   });
 
   it('pushes partial transcripts as a debounced listening overlay', () => {

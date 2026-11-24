@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { ServerMsg } from '@hypersight/protocol';
+import type { CardModel, Overlay, ServerMsg } from '@hypersight/protocol';
 
 /** The subset of a `ws` WebSocket a session needs (keeps sessions testable without sockets). */
 export type SessionSocket = {
@@ -35,6 +35,16 @@ export class Session extends EventEmitter {
 
   get attached(): boolean {
     return this.socket !== null;
+  }
+
+  /** The deck the device was last sent (what a tapped card id refers to). */
+  cards(): CardModel[] {
+    return this.lastDeck?.cards ?? [];
+  }
+
+  /** The overlay the device was last sent, or null. */
+  overlay(): Overlay | null {
+    return this.lastOverlay?.overlay ?? null;
   }
 
   send(msg: OutgoingMsg): void {

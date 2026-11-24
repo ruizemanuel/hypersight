@@ -50,6 +50,7 @@ export interface MarketSource extends EventEmitter {
   readonly catalogue: Catalogue;
   start(): Promise<void>;
   stop(): Promise<void>;
+  refresh(): Promise<void>;
   view(): AccountView;
   mids(): Record<string, string>;
   book(coin: string): Promise<Book>;
@@ -177,6 +178,24 @@ export class MarketStream extends EventEmitter implements MarketSource {
       ),
     ]);
     this.scheduleRefresh();
+  }
+
+  /** Re-reads account state and mids over REST (menu "Refresh", or after a missed push). */
+  async refresh(): Promise<void> {
+    const { info } = this.deps;
+    const user = this.user;
+    const [ch, spot, mids] = await Promise.all([
+      info.clearinghouseState({ user }),
+      info.spotClearinghouseState({ user }),
+      info.allMids(),
+    ]);
+    this.ch = ch;
+    this.spot = spot;
+    this.midsState = { ...this.midsState, ...mids };
+    const view = this.compute();
+    if (!view) return;
+    this.current = view;
+    this.safeEmit('view', view);
   }
 
   async stop(): Promise<void> {

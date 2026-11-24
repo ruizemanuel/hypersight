@@ -171,6 +171,45 @@ describe('VoiceController', () => {
     expect(voice.state).toBe('idle');
   });
 
+  // Phase 3 review I8: the card on screen travels with voice start ("buy 20 of yes" = this market).
+  it('sends the card on screen with voice start', async () => {
+    const sent: ClientMsg[] = [];
+    const voice = new VoiceController({
+      audio: async () => true,
+      socket: {
+        send: (m) => {
+          sent.push(m);
+          return true;
+        },
+        sendAudio: () => true,
+      },
+      cardId: () => 'mkt:rb:BTC:1d',
+    });
+    await voice.onInput({ type: 'holdStart' });
+    expect(sent[0]).toEqual({ t: 'voice', phase: 'start', cardId: 'mkt:rb:BTC:1d' });
+  });
+
+  // Phase 3 review m2: voice while offline says so instead of Listening → nothing.
+  it('closes the mic and reports offline when voice start cannot be sent', async () => {
+    const log: string[] = [];
+    const unavailable: string[] = [];
+    const states: string[] = [];
+    const voice = new VoiceController({
+      audio: async (on) => {
+        log.push(`audio(${on})`);
+        return true;
+      },
+      socket: { send: () => false, sendAudio: () => false },
+    });
+    voice.onUnavailable((r) => unavailable.push(r));
+    voice.onChange((s) => states.push(s));
+    await voice.onInput({ type: 'holdStart' });
+    expect(log).toEqual(['audio(true)', 'audio(false)']);
+    expect(unavailable).toEqual(['offline']);
+    expect(states).toEqual([]);
+    expect(voice.state).toBe('idle');
+  });
+
   // Phase 3 review I5: "Voice unavailable" must not be overwritten by Listening / "Didn't catch that".
   it('closes the mic without starting when the glasses disconnect while it is opening', async () => {
     const { voice, log, unavailable } = harness({ audioDelayMs: 100 });

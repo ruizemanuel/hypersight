@@ -109,6 +109,37 @@ describe('parseIntentFast', () => {
     expect(parseIntentFast('long eth at 5x', base)).toBeNull();
   });
 
+  // Phase 3 review I8: the market/coin in focus (last odds answer, card on screen).
+  it('uses the focused market when the command names none', () => {
+    const btcFocus: IntentContext = { ...base, focus: { marketKey: 'rb:BTC:1d' } };
+    expect(parseIntentFast('buy 20 dollars of yes', btcFocus)).toEqual({
+      kind: 'buyOutcome',
+      marketKey: 'rb:BTC:1d',
+      sideIndex: 0,
+      usd: 20,
+    });
+    expect(parseIntentFast("what're the odds", btcFocus)).toEqual({
+      kind: 'query',
+      topic: 'odds',
+      marketKey: 'rb:BTC:1d',
+    });
+    expect(parseIntentFast('buy 20 dollars of yes', base)).toBeNull();
+    // A named market still wins over the focus.
+    expect(parseIntentFast('buy 20 dollars of yes on the hype daily', btcFocus)).toMatchObject({
+      marketKey: 'rb:HYPE:1d',
+    });
+  });
+
+  it('closes the focused coin when the phrase names no asset', () => {
+    const ethFocus: IntentContext = { ...base, focus: { coin: 'ETH' } };
+    expect(parseIntentFast('close half', ethFocus)).toEqual({
+      kind: 'closePerp',
+      coin: 'ETH',
+      fraction: 0.5,
+    });
+    expect(parseIntentFast('close half my doge', { ...ethFocus, perpCoins: ['ETH'] })).toBeNull();
+  });
+
   const onlyEth: IntentContext = { ...base, positions: [{ coin: 'ETH' }] };
   const coreCoinsOnlyEth: IntentContext = { ...onlyEth, perpCoins: ['BTC', 'ETH', 'SOL', 'HYPE'] };
 

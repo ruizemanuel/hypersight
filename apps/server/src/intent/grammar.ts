@@ -15,6 +15,8 @@ export type IntentContext = {
     /** Price-bucket member: only named with a bucket word or one of its thresholds. */
     bucket?: boolean;
   }[];
+  /** What the user is looking at (card on screen, last odds answer): used when nothing is named. */
+  focus?: { marketKey?: string; coin?: string };
 };
 
 type Market = IntentContext['markets'][number];
@@ -426,9 +428,35 @@ function marketOf(tokens: string[], ctx: IntentContext, nums: Numbers): Market |
       tie = true;
     }
   }
-  if (!best || bestScore === 0 || tie) return null;
+  if (tie) return null;
+  if (!best || bestScore === 0) return focusedMarket(tokens, ctx);
   for (const i of best.hits) nums.use(i);
   return best.m;
+}
+
+/** Words a command may contain when it relies on the focused market ("buy 20 dollars of yes"). */
+const FOCUS_FILLER = new Set([
+  ...CURRENCY,
+  ...FRACTION_WORDS,
+  ...Object.keys(VERBS),
+  ...'yes no of on the a an for in to it this that one market shares share worth some me my '
+    .concat(
+      'all get i want please put bet whats whatre what are is odds chance chances probability now',
+    )
+    .split(' '),
+]);
+
+/**
+ * The focused market, only when the phrase names nothing else: an unknown word may be a market
+ * missing from the context, and the focus must never stand in for it.
+ */
+function focusedMarket(tokens: string[], ctx: IntentContext): Market | null {
+  const key = ctx.focus?.marketKey;
+  const m = key ? ctx.markets.find((x) => x.key === key) : undefined;
+  if (!m) return null;
+  const labels = new Set(m.sides.flatMap((side) => tokenize(side)));
+  const named = tokens.some((t) => !FOCUS_FILLER.has(t) && !isNumeric(t) && !labels.has(t));
+  return named ? null : m;
 }
 
 const isYesNo = (m: Market) =>
@@ -515,6 +543,7 @@ export function parseIntentFast(text: string, ctx: IntentContext): Intent | null
       if (fraction === null) return null;
       let target = coin;
       const onlyFiller = tokens.every((t) => CLOSE_FILLER.has(t) || isNumeric(t));
+      if (!target && onlyFiller && ctx.focus?.coin) target = ctx.focus.coin;
       if (!target && ctx.positions.length === 1 && onlyFiller) {
         target = (ctx.positions[0] as { coin: string }).coin;
       }

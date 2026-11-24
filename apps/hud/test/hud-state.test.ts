@@ -6,6 +6,7 @@ import {
   type HudState,
   hudReducer,
   initialHudState,
+  offlineOverlayFor,
   pageFor,
   step,
 } from '../src/state/hud-state';
@@ -211,6 +212,36 @@ describe('hudReducer overlays and link status', () => {
       kind: 'error',
       message: 'No answer — try again',
     });
+  });
+
+  it('auto-dismisses a result after 4 s and tells the server', () => {
+    const result = { kind: 'result' as const, ok: true, title: 'Filled 0.25 @ 3411', lines: [] };
+    const shown = run([{ type: 'overlay', overlay: result, at: 1_000 }]).state;
+    expect(step(shown, { type: 'tick', now: 4_900 }).state.overlay).toEqual(result);
+    const later = step(shown, { type: 'tick', now: 5_100 });
+    expect(later.state.overlay).toBeNull();
+    expect(later.effects).toEqual([{ type: 'send', msg: { t: 'dismiss' } }]);
+  });
+
+  it('ignores a confirm card that already expired (replayed after a reconnect)', () => {
+    const stale = {
+      kind: 'confirm' as const,
+      proposal: { id: 'p0', title: 'CLOSE 50% ETH LONG', lines: [], expiresAt: 5_000 },
+    };
+    expect(run([{ type: 'overlay', overlay: stale, at: 6_000 }]).state.overlay).toBeNull();
+    expect(run([{ type: 'overlay', overlay: stale, at: 4_000 }]).state.overlay).toEqual(stale);
+  });
+
+  it('turns a tap that could not be sent into "Offline — nothing sent"', () => {
+    expect(offlineOverlayFor({ t: 'confirm', proposalId: 'p1' })).toEqual({
+      kind: 'error',
+      message: 'Offline — nothing sent',
+    });
+    expect(offlineOverlayFor({ t: 'action', cardId: 'perp:ETH', actionId: 'c50' })).toEqual({
+      kind: 'error',
+      message: 'Offline — nothing sent',
+    });
+    expect(offlineOverlayFor({ t: 'dismiss' })).toBeNull();
   });
 
   it('leaves other overlays alone on tick', () => {

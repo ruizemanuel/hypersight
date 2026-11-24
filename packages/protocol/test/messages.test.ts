@@ -40,6 +40,14 @@ describe('ClientMsgSchema', () => {
     });
   });
 
+  it('accepts the card on screen with voice start (focus for "buy 20 of yes")', () => {
+    expect(ClientMsgSchema.parse({ t: 'voice', phase: 'start', cardId: 'mkt:rb:BTC:1d' })).toEqual({
+      t: 'voice',
+      phase: 'start',
+      cardId: 'mkt:rb:BTC:1d',
+    });
+  });
+
   it('accepts a cancelled utterance (2×TAP while listening)', () => {
     expect(ClientMsgSchema.parse({ t: 'voice', phase: 'cancel' })).toEqual({
       t: 'voice',
@@ -53,6 +61,24 @@ describe('ClientMsgSchema', () => {
 });
 
 describe('ServerMsgSchema', () => {
+  it('accepts a confirm card with a note line (what was heard, price moved)', () => {
+    const msg = {
+      t: 'overlay',
+      seq: 3,
+      overlay: {
+        kind: 'confirm',
+        proposal: {
+          id: 'p1',
+          title: 'CLOSE 50% ETH LONG',
+          lines: [],
+          expiresAt: 1,
+          note: 'heard: "close half my eth"',
+        },
+      },
+    };
+    expect(ServerMsgSchema.parse(msg)).toEqual(msg);
+  });
+
   it('accepts a deck of valid cards', () => {
     expect(ServerMsgSchema.parse({ t: 'deck', seq: 1, cards: [card] })).toMatchObject({
       t: 'deck',

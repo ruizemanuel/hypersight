@@ -70,13 +70,14 @@ export function buildIntentContext(
   view: AccountView,
   catalogue: Catalogue,
   watchKeys: string[],
-  opts: { perpCoins?: string[]; now?: number } = {},
+  opts: { perpCoins?: string[]; now?: number; focus?: { marketKey?: string; coin?: string } } = {},
 ): IntentContext {
   const now = opts.now ?? Date.now();
   const chosen = new Map<string, OutcomeMarket>();
   const add = (m: OutcomeMarket | undefined) => {
     if (m && !chosen.has(m.key)) chosen.set(m.key, m);
   };
+  if (opts.focus?.marketKey) add(catalogue.byKey(opts.focus.marketKey));
   for (const k of watchKeys) add(catalogue.byKey(k));
   for (const o of view.outcomes) add(o.market);
   const upcoming = catalogue
@@ -89,7 +90,9 @@ export function buildIntentContext(
   const perpCoins = [
     ...new Set([...(opts.perpCoins ?? CORE_COINS), ...view.perps.map((p) => p.coin)]),
   ];
+  const focus = opts.focus && (opts.focus.marketKey || opts.focus.coin) ? opts.focus : undefined;
   return {
+    ...(focus ? { focus } : {}),
     perpCoins,
     positions: view.perps.map((p) => ({ coin: p.coin })),
     outcomePositions: view.outcomes.map((o) => ({

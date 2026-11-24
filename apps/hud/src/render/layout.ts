@@ -96,9 +96,9 @@ function skeleton(s: Skeleton, layoutKey = 'card'): PageSpec {
 const BODY_WIDTH = 576 - 2 * PADDING;
 const HDR_WIDTH = 576 - 2 * PADDING;
 
-function bodyLines(lines: string[]): string {
+function bodyLines(lines: string[], max = 3): string {
   return lines
-    .slice(0, 3)
+    .slice(0, max)
     .map((l) => fitLine(l, BODY_WIDTH))
     .join('\n');
 }
@@ -158,7 +158,7 @@ export function layoutOverlay(
         return skeleton({
           hdr: hdr('NOT ALLOWED'),
           val: p.title,
-          body: bodyLines([p.blocked, ...p.lines]),
+          body: bodyLines([p.blocked, ...p.lines.slice(0, 2), ...(p.note ? [p.note] : [])], 4),
           ftr: '2×TAP back',
         });
       }
@@ -166,7 +166,7 @@ export function layoutOverlay(
       return skeleton({
         hdr: hdr('CONFIRM'),
         val: p.title,
-        body: bodyLines(p.lines),
+        body: bodyLines([...p.lines, ...(p.note ? [p.note] : [])], 4),
         ftr: `TAP confirm · 2×TAP cancel · ${seconds}s`,
       });
     }

@@ -43,6 +43,15 @@ export type HudEvent =
 
 /** A Thinking overlay (local or from the server) older than this becomes "No answer". */
 export const THINKING_MAX_MS = 15_000;
+/** Results clear themselves (and the server snapshot) after this long. */
+export const RESULT_MS = 4_000;
+
+/** What to show when a tap could not be sent (offline): never let it look like it went out. */
+export function offlineOverlayFor(msg: ClientMsg): Overlay | null {
+  return msg.t === 'confirm' || msg.t === 'action' || msg.t === 'cancel'
+    ? { kind: 'error', message: 'Offline — nothing sent' }
+    : null;
+}
 
 export type Effect =
   | { type: 'send'; msg: ClientMsg }
@@ -90,6 +99,10 @@ export function step(s: HudState, ev: HudEvent): Result {
         const source = ev.overlay.source ?? prev.source;
         return done({ ...s, overlay: { ...ev.overlay, ...(source ? { source } : {}) } });
       }
+      // A confirm replayed after a reconnect may already be dead: never offer it.
+      if (ev.overlay?.kind === 'confirm' && ev.overlay.proposal.expiresAt <= ev.at) {
+        return done(prev?.kind === 'confirm' ? { ...s, overlay: null } : s);
+      }
       return done({ ...s, overlay: ev.overlay, overlayAt: ev.at });
     }
     case 'status':
@@ -97,6 +110,9 @@ export function step(s: HudState, ev: HudEvent): Result {
     case 'exitFailed':
       return done({ ...s, exiting: false, mode: 'deck' });
     case 'tick':
+      if (s.overlay?.kind === 'result' && ev.now - s.overlayAt > RESULT_MS) {
+        return done({ ...s, overlay: null }, { type: 'send', msg: { t: 'dismiss' } });
+      }
       if (s.overlay?.kind === 'thinking' && ev.now - s.overlayAt > THINKING_MAX_MS) {
         return done({
           ...s,

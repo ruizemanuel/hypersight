@@ -26,7 +26,12 @@ export const ClientMsgSchema = z.discriminatedUnion('t', [
   z.object({ t: z.literal('confirm'), proposalId: z.string().min(1) }),
   z.object({ t: z.literal('cancel'), proposalId: z.string().min(1) }),
   /** `cancel` abandons the utterance (2×TAP, exit, disconnect): nothing is transcribed. */
-  z.object({ t: z.literal('voice'), phase: z.enum(['start', 'end', 'cancel']) }),
+  z.object({
+    t: z.literal('voice'),
+    phase: z.enum(['start', 'end', 'cancel']),
+    /** With `start`: the card on screen, so "buy 20 of yes" can mean this market. */
+    cardId: z.string().min(1).max(80).optional(),
+  }),
   z.object({ t: z.literal('dismiss') }),
   z.object({ t: z.literal('ping') }),
 ]);

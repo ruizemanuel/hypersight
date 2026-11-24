@@ -114,6 +114,22 @@ describe('MarketStream', () => {
     expect(stream.mids().ETH).toBe('3429');
   });
 
+  it('re-reads account state on refresh (menu "Refresh") and emits a view', async () => {
+    const { stream } = make();
+    await stream.start();
+    const views: AccountView[] = [];
+    stream.on('view', (v: AccountView) => views.push(v));
+    const ch = info.clearinghouseState;
+    info.clearinghouseState = async () => ({ ...clearinghouse, assetPositions: [] }) as never;
+    try {
+      await stream.refresh();
+    } finally {
+      info.clearinghouseState = ch;
+    }
+    expect(views).toHaveLength(1);
+    expect(stream.view().perps).toEqual([]);
+  });
+
   it('applies a spot push to the view', async () => {
     const { stream, emit } = make();
     await stream.start();

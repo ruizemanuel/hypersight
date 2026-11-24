@@ -15,6 +15,7 @@ import {
   type HudEvent,
   type HudState,
   initialHudState,
+  offlineOverlayFor,
   pageFor,
   step,
 } from './state/hud-state';
@@ -88,8 +89,13 @@ async function boot(): Promise<void> {
   };
 
   const runEffect = (e: Effect): void => {
-    if (e.type === 'send') socket?.send(e.msg);
-    else if (e.type === 'reconnect') socket?.reconnect();
+    if (e.type === 'send') {
+      const sent = socket?.send(e.msg) ?? false;
+      const offline = sent ? null : offlineOverlayFor(e.msg);
+      // Deferred: runEffect is called from inside dispatch.
+      if (offline)
+        queueMicrotask(() => dispatch({ type: 'overlay', overlay: offline, at: Date.now() }));
+    } else if (e.type === 'reconnect') socket?.reconnect();
     else if (e.type === 'probe') socket?.probe();
     else if (e.type === 'exit') {
       void queue
@@ -120,6 +126,9 @@ async function boot(): Promise<void> {
       send: (m) => socket?.send(m) ?? false,
       sendAudio: (pcm) => socket?.sendAudio(pcm) ?? false,
     },
+    // The card on screen is the focus of "buy 20 of yes" (not when an overlay covers it).
+    cardId: () =>
+      state.overlay || state.mode !== 'deck' ? undefined : state.cards[state.index]?.id,
   });
   voice.onChange((change, source) => {
     if (change === 'listening') {
@@ -133,12 +142,12 @@ async function boot(): Promise<void> {
     const overlay = change === 'sent' ? { kind: 'thinking' as const } : null;
     dispatch({ type: 'overlay', overlay, at: Date.now() });
   });
-  voice.onUnavailable(() => {
-    dispatch({
-      type: 'overlay',
-      overlay: { kind: 'error', message: 'Voice unavailable — use TAP actions' },
-      at: Date.now(),
-    });
+  voice.onUnavailable((reason) => {
+    const message =
+      reason === 'offline'
+        ? 'Offline — voice needs the server'
+        : 'Voice unavailable — use TAP actions';
+    dispatch({ type: 'overlay', overlay: { kind: 'error', message }, at: Date.now() });
   });
   bridge.onDeviceStatusChanged((status) => {
     const t = status.connectType;
@@ -169,7 +178,7 @@ async function boot(): Promise<void> {
   // Thinking is expired by the reducer so it can never stay up forever.
   setInterval(() => {
     const kind = state.overlay?.kind;
-    if (kind === 'thinking') dispatch({ type: 'tick', now: Date.now() });
+    if (kind === 'thinking' || kind === 'result') dispatch({ type: 'tick', now: Date.now() });
     else if (kind === 'confirm' || kind === 'listening') render();
   }, 1000);
 
@@ -199,8 +208,11 @@ async function boot(): Promise<void> {
     else if (m.t === 'deck') {
       deckCache.save(m.cards);
       dispatch({ type: 'deck', cards: m.cards }, true);
-    } else if (m.t === 'overlay') dispatch({ type: 'overlay', overlay: m.overlay, at: Date.now() });
-    else if (m.t === 'error') console.warn(`[server] ${m.code}: ${m.message}`);
+    } else if (m.t === 'overlay') {
+      // Live words belong to an utterance in progress; a replayed Listening is a dead state.
+      if (m.overlay?.kind === 'listening' && voice.state === 'idle') return;
+      dispatch({ type: 'overlay', overlay: m.overlay, at: Date.now() });
+    } else if (m.t === 'error') console.warn(`[server] ${m.code}: ${m.message}`);
   });
   socket.connect();
 }

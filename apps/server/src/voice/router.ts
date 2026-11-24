@@ -5,7 +5,8 @@ export type VoiceRouterDeps = {
   /** null when no STT provider is configured: voice reports unavailable, taps still work. */
   factory: SttFactory | null;
   keyterms: () => string[];
-  onTranscript: (session: Session, text: string) => Promise<void>;
+  /** sttMs: voice end → final transcript. */
+  onTranscript: (session: Session, text: string, timing: { sttMs: number }) => Promise<void>;
   log?: (msg: string, err?: unknown) => void;
 };
 
@@ -59,7 +60,9 @@ export class VoiceRouter {
     if (!entry) return;
     this.active.delete(session);
     if (entry.timer) clearTimeout(entry.timer);
+    const t0 = performance.now();
     const text = (await entry.stream.finish()).trim();
+    const sttMs = Math.round(performance.now() - t0);
     if (!text) {
       session.send({
         t: 'overlay',
@@ -72,7 +75,7 @@ export class VoiceRouter {
       });
       return;
     }
-    await this.deps.onTranscript(session, text);
+    await this.deps.onTranscript(session, text, { sttMs });
   }
 
   /** The user abandoned the utterance (2×TAP, exit, disconnect): nothing is transcribed. */

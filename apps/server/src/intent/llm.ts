@@ -37,7 +37,16 @@ function contextBlock(ctx: IntentContext): string {
   const markets = ctx.markets
     .map((m) => `- ${m.key}: "${m.short}" (side 0 = ${m.sides[0]}, side 1 = ${m.sides[1]})`)
     .join('\n');
+  const focus = [
+    ctx.focus?.marketKey ? `market ${ctx.focus.marketKey}` : null,
+    ctx.focus?.coin ? `coin ${ctx.focus.coin}` : null,
+  ].filter(Boolean);
   return [
+    ...(focus.length > 0
+      ? [
+          `In focus on the glasses (use it only when the command names no market or coin): ${focus.join(', ')}`,
+        ]
+      : []),
     `Tradable perp coins: ${ctx.perpCoins.join(', ')}`,
     `Open perp positions: ${perps}`,
     `Held prediction-market positions: ${held}`,

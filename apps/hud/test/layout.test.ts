@@ -144,6 +144,31 @@ describe('layoutOverlay', () => {
     expect(text.val).toBe('CLOSE 50% ETH LONG');
   });
 
+  it('shows what was heard under the confirm details (Phase 3 review)', () => {
+    const page = layoutOverlay(
+      {
+        kind: 'confirm',
+        proposal: {
+          id: 'p1',
+          title: 'CLOSE 50% ETH LONG',
+          lines: ['0.25 ETH ≈ $852.75', 'Est. PnL +$21.05', 'Reduce-only'],
+          expiresAt: NOW + 12_000,
+          note: 'heard: "close half my eth"',
+        },
+      },
+      NOW,
+      { badge: 'TESTNET', shownAt: NOW },
+    );
+    checkFits(page);
+    const body = page.texts.find((t) => t.name === 'body')?.text ?? '';
+    expect(body.split('\n')).toEqual([
+      '0.25 ETH ≈ $852.75',
+      'Est. PnL +$21.05',
+      'Reduce-only',
+      'heard: "close half my eth"',
+    ]);
+  });
+
   it('offers no confirm on a blocked proposal', () => {
     const page = layoutOverlay(overlays[4] as Overlay, NOW, { badge: 'TESTNET', shownAt: NOW });
     const text = Object.fromEntries(page.texts.map((t) => [t.name, t.text]));
