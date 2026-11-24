@@ -173,6 +173,38 @@ describe('hudReducer overlays and link status', () => {
     expect(r.state.overlay).toBeNull();
   });
 
+  // Phase 3 review I3: Thinking must never trap the glasses, whoever sent it.
+  it('dismisses a thinking overlay on double tap', () => {
+    const r = run([
+      { type: 'overlay', overlay: { kind: 'thinking' }, at: 0 },
+      { type: 'doubleTap' },
+    ]);
+    expect(r.state.overlay).toBeNull();
+    expect(r.effects).toEqual([{ type: 'send', msg: { t: 'dismiss' } }]);
+  });
+
+  it('dismisses a listening overlay that reaches the deck (voice idle) on double tap', () => {
+    const r = run([
+      { type: 'overlay', overlay: { kind: 'listening', transcript: 'close' }, at: 0 },
+      { type: 'doubleTap' },
+    ]);
+    expect(r.state.overlay).toBeNull();
+  });
+
+  it('turns a thinking overlay older than 15 s into "No answer — try again"', () => {
+    const shown = run([{ type: 'overlay', overlay: { kind: 'thinking' }, at: 1_000 }]).state;
+    expect(step(shown, { type: 'tick', now: 15_999 }).state.overlay).toEqual({ kind: 'thinking' });
+    expect(step(shown, { type: 'tick', now: 16_001 }).state.overlay).toEqual({
+      kind: 'error',
+      message: 'No answer — try again',
+    });
+  });
+
+  it('leaves other overlays alone on tick', () => {
+    const shown = run([{ type: 'overlay', overlay: confirm, at: 0 }]).state;
+    expect(step(shown, { type: 'tick', now: 60_000 }).state).toBe(shown);
+  });
+
   it('reconnects on tap after being replaced, and probes on foreground', () => {
     const replaced = run([
       { type: 'deck', cards: deck },

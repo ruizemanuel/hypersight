@@ -55,6 +55,20 @@ describe('parseIntentLLM', () => {
     expect(params.messages).toEqual([{ role: 'user', content: 'take profit on half of my ether' }]);
   });
 
+  // Phase 3 review I3: the SDK default (10 min, 2 retries) would trap the glasses on Thinking.
+  it('bounds the call: 8 s per attempt, one retry, 12 s overall', async () => {
+    const { client, spy } = stubClient(ok({ kind: 'cancelAll' }));
+    await parseIntentLLM('x', ctx, { client, model: 'm' });
+    const options = (spy.mock.calls[0] as unknown[])[1] as {
+      timeout: number;
+      maxRetries: number;
+      signal: AbortSignal;
+    };
+    expect(options.timeout).toBe(8_000);
+    expect(options.maxRetries).toBe(1);
+    expect(options.signal).toBeInstanceOf(AbortSignal);
+  });
+
   it('returns unknown on a refusal', async () => {
     const { client } = stubClient(async () => ({ stop_reason: 'refusal', parsed_output: null }));
     expect((await parseIntentLLM('x', ctx, { client, model: 'm' })).kind).toBe('unknown');

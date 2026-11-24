@@ -10,6 +10,10 @@ export type LlmDeps = {
   log?: (msg: string, err?: unknown) => void;
 };
 
+const ATTEMPT_TIMEOUT_MS = 8_000;
+/** Below the HUD's 15 s Thinking limit, so a late answer never lands after "No answer". */
+const TOTAL_TIMEOUT_MS = 12_000;
+
 /** The intent sits under a root object: structured outputs are most reliable with an object root. */
 const LlmOutputSchema = z.object({ intent: IntentSchema });
 
@@ -66,15 +70,23 @@ export async function parseIntentLLM(
   deps: LlmDeps,
 ): Promise<Intent> {
   try {
-    const response = await deps.client.beta.messages.parse({
-      model: deps.model,
-      max_tokens: 4096,
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      output_config: { effort: 'low', format: betaZodOutputFormat(LlmOutputSchema) },
-      system: `${RULES}\n\n${contextBlock(ctx)}`,
-      messages: [{ role: 'user', content: text }],
-    });
+    const response = await deps.client.beta.messages.parse(
+      {
+        model: deps.model,
+        max_tokens: 4096,
+        betas: ['server-side-fallback-2026-07-01'],
+        fallbacks: 'default',
+        output_config: { effort: 'low', format: betaZodOutputFormat(LlmOutputSchema) },
+        system: `${RULES}\n\n${contextBlock(ctx)}`,
+        messages: [{ role: 'user', content: text }],
+      },
+      // Someone is waiting on the glasses: never the SDK default of 10 min × 3 attempts.
+      {
+        timeout: ATTEMPT_TIMEOUT_MS,
+        maxRetries: 1,
+        signal: AbortSignal.timeout(TOTAL_TIMEOUT_MS),
+      },
+    );
     if (response.stop_reason === 'refusal') return unknown('Request declined');
     const parsed = IntentSchema.safeParse(
       (response.parsed_output as { intent?: unknown } | null)?.intent,

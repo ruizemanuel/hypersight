@@ -21,7 +21,6 @@ import {
 import { VoiceController } from './voice/controller';
 
 const LIVE_DEBOUNCE_MS = 120;
-const VOICE_REPLY_TIMEOUT_MS = 10_000;
 
 function serverWsUrl(): string {
   const configured = import.meta.env.VITE_SERVER_WS as string | undefined;
@@ -121,22 +120,14 @@ async function boot(): Promise<void> {
       sendAudio: (pcm) => socket?.sendAudio(pcm) ?? false,
     },
   });
-  let localThinkingTimer: ReturnType<typeof setTimeout> | null = null;
   voice.onChange((s) => {
     if (s === 'listening') {
       dispatch({ type: 'overlay', overlay: { kind: 'listening', transcript: '' }, at: Date.now() });
       return;
     }
-    // Released: show Thinking until the server answers; never leave it stuck if it does not.
+    // Released: show Thinking until the server answers (the 1 s tick expires it if it never does).
     if (state.overlay?.kind !== 'listening') return;
-    const at = Date.now();
-    dispatch({ type: 'overlay', overlay: { kind: 'thinking' }, at });
-    if (localThinkingTimer) clearTimeout(localThinkingTimer);
-    localThinkingTimer = setTimeout(() => {
-      if (state.overlay?.kind === 'thinking' && state.overlayAt === at) {
-        dispatch({ type: 'overlay', overlay: null, at: Date.now() });
-      }
-    }, VOICE_REPLY_TIMEOUT_MS);
+    dispatch({ type: 'overlay', overlay: { kind: 'thinking' }, at: Date.now() });
   });
   voice.onUnavailable(() => {
     dispatch({
@@ -171,9 +162,11 @@ async function boot(): Promise<void> {
   });
 
   // Countdown (confirm) and elapsed time (listening) tick once a second: footer/body upgrades only.
+  // Thinking is expired by the reducer so it can never stay up forever.
   setInterval(() => {
     const kind = state.overlay?.kind;
-    if (kind === 'confirm' || kind === 'listening') render();
+    if (kind === 'thinking') dispatch({ type: 'tick', now: Date.now() });
+    else if (kind === 'confirm' || kind === 'listening') render();
   }, 1000);
 
   render(); // creates the startup page ("Connecting…")

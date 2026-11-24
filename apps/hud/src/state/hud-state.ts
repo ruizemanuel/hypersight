@@ -37,7 +37,12 @@ export type HudEvent =
   | { type: 'deck'; cards: CardModel[]; cached?: true }
   | { type: 'overlay'; overlay: Overlay | null; at: number }
   | { type: 'status'; status: HudStatus }
-  | { type: 'exitFailed' };
+  | { type: 'exitFailed' }
+  /** Once a second: expires overlays that must not stay up forever. */
+  | { type: 'tick'; now: number };
+
+/** A Thinking overlay (local or from the server) older than this becomes "No answer". */
+export const THINKING_MAX_MS = 15_000;
 
 export type Effect =
   | { type: 'send'; msg: ClientMsg }
@@ -84,6 +89,15 @@ export function step(s: HudState, ev: HudEvent): Result {
       return done({ ...s, status: ev.status });
     case 'exitFailed':
       return done({ ...s, exiting: false, mode: 'deck' });
+    case 'tick':
+      if (s.overlay?.kind === 'thinking' && ev.now - s.overlayAt > THINKING_MAX_MS) {
+        return done({
+          ...s,
+          overlay: { kind: 'error', message: 'No answer — try again' },
+          overlayAt: ev.now,
+        });
+      }
+      return done(s);
     default:
       return onInput(s, ev);
   }
@@ -171,8 +185,11 @@ function onOverlayInput(s: HudState, o: Overlay, ev: InputEvent): Result {
         ? done(cleared, { type: 'send', msg: { t: 'dismiss' } })
         : done(s);
     default:
-      // listening / thinking: the voice controller and the server drive these
-      return done(s);
+      // listening / thinking: the voice controller consumes input while it is active, so a
+      // double tap that gets here is the user's way out (slow assistant, stale overlay).
+      return ev.type === 'doubleTap'
+        ? done(cleared, { type: 'send', msg: { t: 'dismiss' } })
+        : done(s);
   }
 }
 
