@@ -173,6 +173,27 @@ describe('MarketStream', () => {
     expect(stream.todayFills(day + 86_400_000 + 1)).toEqual([]);
   });
 
+  it('keeps each fill once when a reconnect replays the snapshot', async () => {
+    const { stream, emit } = make();
+    await stream.start();
+    const day = Date.UTC(2026, 10, 24);
+    const snapshot = [
+      { coin: 'ETH', tid: 11, time: day + 60_000 },
+      { coin: 'SOL', tid: 12, time: day + 120_000 },
+    ];
+    emit('userFills', { user: USER, isSnapshot: true, fills: snapshot });
+    emit('userFills', { user: USER, fills: [{ coin: 'BTC', tid: 13, time: day + 180_000 }] });
+    // The SDK resubscribes after a dropped socket and Hyperliquid sends the snapshot again.
+    emit('userFills', {
+      user: USER,
+      isSnapshot: true,
+      fills: [...snapshot, { coin: 'BTC', tid: 13, time: day + 180_000 }],
+    });
+    expect(stream.todayFills(day + 3_600_000).map((f) => (f as { tid: number }).tid)).toEqual([
+      11, 12, 13,
+    ]);
+  });
+
   it('applies outcome meta updates to the catalogue and re-emits them', async () => {
     const { stream, emit } = make();
     await stream.start();

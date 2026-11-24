@@ -111,7 +111,8 @@ export class MarketStream extends EventEmitter implements MarketSource {
   private deadline = Number.POSITIVE_INFINITY;
   private running = false;
   /** Recent fills (snapshot + stream), for the day recap; trimmed to the last two days. */
-  private fills: { time: number; fill: unknown }[] = [];
+  private fills: { time: number; fill: unknown; id: string }[] = [];
+  private readonly fillIds = new Set<string>();
 
   constructor(deps: MarketStreamDeps) {
     super();
@@ -231,13 +232,24 @@ export class MarketStream extends EventEmitter implements MarketSource {
     return this.fills.filter((f) => f.time >= start && f.time < start + DAY_MS).map((f) => f.fill);
   }
 
+  /** Every reconnect replays the snapshot: a fill is kept once, by trade id (else hash + order). */
   private keepFills(fills: unknown[]): void {
     for (const f of fills) {
-      const time = Number((f as { time?: unknown } | null)?.time);
-      if (Number.isFinite(time)) this.fills.push({ time, fill: f });
+      const fill = f as { time?: unknown; tid?: unknown; hash?: unknown; oid?: unknown } | null;
+      const time = Number(fill?.time);
+      if (!Number.isFinite(time)) continue;
+      const id =
+        fill?.tid !== undefined
+          ? `t:${String(fill.tid)}`
+          : `h:${String(fill?.hash)}:${String(fill?.oid)}:${time}`;
+      if (this.fillIds.has(id)) continue;
+      this.fillIds.add(id);
+      this.fills.push({ time, fill: f, id });
     }
     const cutoff = this.now() - 2 * DAY_MS;
-    this.fills = this.fills.filter((f) => f.time >= cutoff).sort((a, b) => a.time - b.time);
+    const kept = this.fills.filter((f) => f.time >= cutoff);
+    for (const f of this.fills) if (f.time < cutoff) this.fillIds.delete(f.id);
+    this.fills = kept.sort((a, b) => a.time - b.time);
   }
 
   async book(coin: string): Promise<Book> {
