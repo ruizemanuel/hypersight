@@ -18,6 +18,7 @@ import { type Focus, SessionController } from './session/controller';
 import { SessionRegistry } from './session/registry';
 import { openDb } from './store/db';
 import { createRepos } from './store/repos';
+import { createGramBalance } from './ton/balance';
 import { type ExecResult, type Executor, FakeExecutor } from './trade/executor';
 import { PaperExecutor } from './trade/paper-executor';
 import { ProposalService } from './trade/proposals';
@@ -71,6 +72,8 @@ function main(): void {
       .map((k) => catalogue.byKey(k))
       .filter((m): m is OutcomeMarket => m !== undefined);
 
+  // Read-only Gram (TON testnet) card, only when TON_ADDRESS is set.
+  const gram = cfg.tonAddress ? createGramBalance(cfg.tonAddress) : null;
   const publisher = createDeckPublisher({
     build: () => {
       if (!stream) throw new Error('market data not ready yet');
@@ -81,6 +84,9 @@ function main(): void {
         presets: repos.settings.get().presets,
         badge,
         now: Date.now(),
+        ...(gram?.current()
+          ? { gram: gram.current() as NonNullable<ReturnType<typeof gram.current>> }
+          : {}),
       });
     },
     sessions: () => registry.all().filter((s) => s.attached),
@@ -272,6 +278,15 @@ function main(): void {
     }
   }
   void startMarket();
+  if (gram) {
+    const refreshGram = () =>
+      void gram
+        .refresh()
+        .then(() => publisher.publish())
+        .catch((err) => log('[ton] balance refresh failed', err));
+    refreshGram();
+    setInterval(refreshGram, 60_000).unref();
+  }
 
   const shutdown = (signal: string) => {
     log(`[server] ${signal} received, shutting down`);

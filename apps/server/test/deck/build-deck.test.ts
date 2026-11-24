@@ -95,6 +95,39 @@ describe('buildDeck', () => {
     expect(card?.lines.join(' ')).not.toContain('liq $');
   });
 
+  it('adds a read-only Gram card only when a balance is provided', () => {
+    expect(deck(view()).some((c) => c.kind === 'gram')).toBe(false);
+    const cards = buildDeck({
+      view: view(),
+      watch: [btcDaily],
+      mids,
+      presets: DEFAULT_PRESETS,
+      badge: 'TESTNET',
+      now: NOW,
+      gram: { gram: 12.5 },
+    });
+    expect(cards.find((c) => c.kind === 'gram')).toEqual({
+      id: 'gram',
+      kind: 'gram',
+      title: 'GRAM · TON TESTNET',
+      value: '12.5 GRAM',
+      lines: ['Read-only · Gram Wallet'],
+      hint: 'HOLD speak · swipe for cards',
+      badge: 'TESTNET',
+      actions: [],
+    });
+    const down = buildDeck({
+      view: view(),
+      watch: [],
+      mids,
+      presets: DEFAULT_PRESETS,
+      badge: 'TESTNET',
+      now: NOW,
+      gram: { error: 'TON unavailable' },
+    });
+    expect(down.find((c) => c.kind === 'gram')?.value).toBe('TON unavailable');
+  });
+
   it('never shows a blank deck for a fresh account', () => {
     const cards = deck(view());
     expect(cards.map((c) => c.id)).toEqual(['account', 'empty', 'mkt:rb:BTC:1d', 'mkt:rb:ETH:1d']);

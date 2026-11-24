@@ -11,6 +11,8 @@ export type DeckInput = {
   presets: Presets;
   badge: Badge;
   now: number;
+  /** Read-only Gram (TON testnet) balance, when TON_ADDRESS is set. */
+  gram?: { gram: number } | { error: string };
 };
 
 const HINT_ACTIONS = 'TAP actions · HOLD speak';
@@ -179,5 +181,23 @@ export function buildDeck(input: DeckInput): CardModel[] {
     cards.push(emptyCard(watch, presets, badge));
   }
   for (const m of watch) cards.push(marketCard(m, input));
+  if (input.gram) cards.push(gramCard(input.gram, badge));
   return cards;
+}
+
+function gramCard(g: { gram: number } | { error: string }, badge: Badge): CardModel {
+  const value =
+    'gram' in g
+      ? `${Number(g.gram.toFixed(4)).toLocaleString('en-US', { maximumFractionDigits: 4 })} GRAM`
+      : g.error;
+  return {
+    id: 'gram',
+    kind: 'gram',
+    title: 'GRAM · TON TESTNET',
+    value,
+    lines: ['Read-only · Gram Wallet'],
+    hint: HINT_NO_ACTIONS,
+    badge,
+    actions: [],
+  };
 }
