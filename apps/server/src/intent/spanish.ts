@@ -15,8 +15,41 @@ const UNITS: Record<string, string> = {
   ocho: 'eight',
   nueve: 'nine',
 };
+/** Imperative, rioplatense voseo, infinitive and the subjunctive a negative command takes. */
+const VERBS: Record<string, string> = {
+  cerra: 'close',
+  cerrar: 'close',
+  cierra: 'close',
+  cierre: 'close',
+  cierres: 'close',
+  cerres: 'close',
+  cerrame: 'close',
+  compra: 'buy',
+  comprar: 'buy',
+  compre: 'buy',
+  compres: 'buy',
+  comprame: 'buy',
+  vende: 'sell',
+  vender: 'sell',
+  venda: 'sell',
+  vendas: 'sell',
+  cancela: 'cancel',
+  cancelar: 'cancel',
+  cancele: 'cancel',
+  canceles: 'cancel',
+  abri: 'open',
+  abrir: 'open',
+  abre: 'open',
+  abra: 'open',
+  abras: 'open',
+  segui: 'watch',
+  seguir: 'watch',
+  sigue: 'watch',
+  sigas: 'watch',
+};
 const WORDS: Record<string, string> = {
   ...UNITS,
+  ...VERBS,
   diez: 'ten',
   doce: 'twelve',
   trece: 'thirteen',
@@ -40,28 +73,6 @@ const WORDS: Record<string, string> = {
   trescientos: 'three hundred',
   cuatrocientos: 'four hundred',
   quinientos: 'five hundred',
-  // verbs (imperative, rioplatense voseo and infinitive)
-  cerra: 'close',
-  cerrar: 'close',
-  cierra: 'close',
-  cierre: 'close',
-  cerrame: 'close',
-  compra: 'buy',
-  comprar: 'buy',
-  compre: 'buy',
-  comprame: 'buy',
-  vende: 'sell',
-  vender: 'sell',
-  venda: 'sell',
-  cancela: 'cancel',
-  cancelar: 'cancel',
-  cancele: 'cancel',
-  abri: 'open',
-  abrir: 'open',
-  abre: 'open',
-  segui: 'watch',
-  seguir: 'watch',
-  sigue: 'watch',
   // everything else the grammar needs
   todo: 'all',
   toda: 'all',
@@ -93,7 +104,11 @@ const WORDS: Record<string, string> = {
 const TENS = 'veinte|treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa';
 const UNIT = Object.keys(UNITS).join('|');
 
+const VERB = Object.keys(VERBS).join('|');
+
 const PHRASES: [RegExp, string][] = [
+  // "no cierres mi eth" is a negation, not the outcome side "no" ("de no en bitcoin").
+  [new RegExp(`\\bno (?=(?:me |lo |la |los |las )?(?:${VERB})\\b)`, 'g'), 'dont '],
   [/\bpor favor\b/g, ' '],
   [/\bcuant[oa]s? (gano|voy ganando|estoy ganando|llevo ganado|gane|voy)\b/g, 'what is my pnl'],
   [/\bcuanto (vale|esta|cuesta)\b/g, 'what is the price of'],

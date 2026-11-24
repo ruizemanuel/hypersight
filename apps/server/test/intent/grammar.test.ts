@@ -111,6 +111,13 @@ describe('parseIntentFast', () => {
       { kind: 'buyOutcome', marketKey: 'rb:BTC:1d', sideIndex: 1, usd: 35 },
     ],
     ['contame un chiste', null],
+    // "no" before an action verb negates it; "de no" stays the outcome side.
+    ['no cierre mi eth', null],
+    ['no cierres la mitad de mi eth', null],
+    ['no cerrés todo mi sol', null],
+    ['no cancele todo', null],
+    ['no compres nada de sí en bitcoin', null],
+    ['no vendás la mitad de mis hawks', null],
   ])('%s', (text, expected, ctx = base) => {
     expect(parseIntentFast(text, ctx)).toEqual(expected);
   });
