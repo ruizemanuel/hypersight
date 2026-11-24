@@ -36,7 +36,7 @@ const HISTORY_MS = 60 * 60_000;
 
 /**
  * Evaluates the user's rules on every account/mids update and every fill, with a cooldown per
- * rule, and pushes alerts. An alert only suggests; its action goes through the normal confirm.
+ * rule (per rule and coin for the liquidation warning), and pushes alerts. An alert only suggests; its action goes through the normal confirm.
  */
 export class AlertEngine {
   private prev: Snapshot | null = null;
@@ -77,8 +77,7 @@ export class AlertEngine {
       oddsHistory: this.odds,
     };
     for (const rule of rules) {
-      const ev = evaluateRule(rule, this.prev, next, now, this.ctx);
-      if (ev) this.fire(rule, ev, now);
+      for (const ev of evaluateRule(rule, this.prev, next, now, this.ctx)) this.fire(rule, ev, now);
     }
     this.recordOdds(rules, next.mids, now);
     this.prev = { ...next, oddsHistory: this.odds };
@@ -103,16 +102,23 @@ export class AlertEngine {
       const coin = outcomeCoin(m.outcome, 0);
       const p = Number(mids[coin]);
       if (!Number.isFinite(p)) continue;
-      const list = (this.odds.get(coin) ?? []).filter((h) => now - h.t <= HISTORY_MS);
+      // Changes only: the last one at or before the cutoff is kept, it is the price back then.
+      const all = this.odds.get(coin) ?? [];
+      let start = 0;
+      all.forEach((h, i) => {
+        if (h.t <= now - HISTORY_MS) start = i;
+      });
+      const list = all.slice(start);
       if (list.at(-1)?.p !== p) list.push({ t: now, p });
       this.odds.set(coin, list);
     }
   }
 
   private fire(rule: AlertRule, ev: AlertEvent, now: number): void {
-    const last = this.lastFired.get(rule.id);
+    const key = ev.key ?? rule.id;
+    const last = this.lastFired.get(key);
     if (last !== undefined && now - last < rule.cooldownMs) return;
-    this.lastFired.set(rule.id, now);
+    this.lastFired.set(key, now);
     try {
       this.deps.push(ev);
     } catch (err) {

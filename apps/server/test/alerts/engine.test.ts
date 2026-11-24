@@ -3,7 +3,7 @@ import type { AlertRule } from '@hypersight/protocol';
 import { describe, expect, it } from 'vitest';
 import { AlertEngine } from '../../src/alerts/engine';
 import type { AlertEvent } from '../../src/alerts/rules';
-import type { AccountView } from '../../src/hl/account';
+import type { AccountView, PerpPosition } from '../../src/hl/account';
 import { Catalogue } from '../../src/hl/outcomes';
 import { openDb } from '../../src/store/db';
 import { createRepos } from '../../src/store/repos';
@@ -118,6 +118,104 @@ describe('AlertEngine', () => {
     expect(() =>
       stream.emit('fill', { coin: '#271531', dir: 'Settlement', sz: '2', px: '1', closedPnl: '1' }),
     ).not.toThrow();
+  });
+});
+
+describe('AlertEngine — odds and liquidation over time', () => {
+  function live(rules: AlertRule[]) {
+    const clock = { now: T0 };
+    const catalogue = new Catalogue({ now: () => clock.now });
+    catalogue.reset(
+      {
+        outcomes: [
+          {
+            outcome: 27321,
+            name: 'Recurring',
+            description:
+              'class:priceBinary|underlying:BTC|expiry:20261125-0300|targetPrice:61509|period:1d',
+            sideSpecs: [{ name: 'Yes' }, { name: 'No' }],
+          },
+        ],
+        questions: [],
+      },
+      [],
+    );
+    let current: AccountView = view;
+    const mids: Record<string, string> = { '#273210': '0.5' };
+    const stream = Object.assign(new EventEmitter(), { view: () => current, mids: () => mids });
+    const pushed: AlertEvent[] = [];
+    const engine = new AlertEngine({
+      stream,
+      rules: { list: () => rules },
+      catalogue,
+      push: (ev) => pushed.push(ev),
+      now: () => clock.now,
+    });
+    engine.start();
+    const tick = (over: { odds?: string; perps?: PerpPosition[] } = {}) => {
+      if (over.odds) mids['#273210'] = over.odds;
+      if (over.perps) current = { ...view, perps: over.perps };
+      stream.emit('view', current);
+    };
+    return { pushed, clock, tick };
+  }
+
+  const pos = (coin: string, markPx: number, liqPx: number): PerpPosition => ({
+    coin,
+    size: 1,
+    entryPx: markPx,
+    markPx,
+    upnlUsd: 0,
+    roe: 0,
+    leverage: 5,
+    isCross: true,
+    liqPx,
+    szDecimals: 2,
+  });
+
+  it('catches an odds jump after a quiet stretch, and only once while it stays moved', () => {
+    const s = live([
+      {
+        id: 'btc-odds',
+        kind: 'oddsMove',
+        params: { marketKey: 'rb:BTC:1d', points: 8, windowMs: 600_000 },
+        cooldownMs: 0,
+        enabled: true,
+      },
+    ]);
+    for (let m = 0; m <= 20; m++) {
+      s.clock.now = T0 + m * 60_000;
+      s.tick({ odds: '0.5' });
+    }
+    s.clock.now += 60_000;
+    s.tick({ odds: '0.6' });
+    s.clock.now += 60_000;
+    s.tick({ odds: '0.61' });
+    s.clock.now += 60_000;
+    s.tick({ odds: '0.6' });
+    expect(s.pushed.map((e) => e.title)).toEqual(['BTC > 61,509 · 60% (+10)']);
+  });
+
+  it('warns about a second coin near liquidation inside the first coin cooldown', () => {
+    const s = live([
+      { id: 'liq', kind: 'liqDistance', params: { pct: 10 }, cooldownMs: 600_000, enabled: true },
+    ]);
+    s.tick({ perps: [pos('ETH', 3000, 2500), pos('BTC', 90_000, 80_000)] });
+    s.tick({ perps: [pos('ETH', 2700, 2500), pos('BTC', 90_000, 80_000)] });
+    s.clock.now += 60_000;
+    s.tick({ perps: [pos('ETH', 2700, 2500), pos('BTC', 87_000, 80_000)] });
+    expect(s.pushed.map((e) => e.title)).toEqual([
+      'ETH 7% from liquidation',
+      'BTC 8% from liquidation',
+    ]);
+  });
+
+  it('warns at start-up about a position already close to liquidation', () => {
+    const s = live([
+      { id: 'liq', kind: 'liqDistance', params: { pct: 10 }, cooldownMs: 600_000, enabled: true },
+    ]);
+    s.tick({ perps: [pos('ETH', 2700, 2500)] });
+    expect(s.pushed.map((e) => e.title)).toEqual(['ETH 7% from liquidation']);
   });
 });
 

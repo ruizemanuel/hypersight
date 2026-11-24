@@ -69,38 +69,64 @@ const ctx = {
 describe('evaluateRule', () => {
   it('fires once when the price crosses upward, not again while it stays above', () => {
     const r = rule('priceCross', { coin: 'ETH', px: 3400, dir: 'above' });
-    const ev = evaluateRule(r, snap({ ETH: '3390' }), snap({ ETH: '3405' }), NOW, ctx);
-    expect(ev).toMatchObject({ ruleId: 'r-priceCross', title: 'ETH above 3,400' });
-    expect(evaluateRule(r, snap({ ETH: '3405' }), snap({ ETH: '3410' }), NOW, ctx)).toBeNull();
+    const evs = evaluateRule(r, snap({ ETH: '3390' }), snap({ ETH: '3405' }), NOW, ctx);
+    expect(evs).toMatchObject([{ ruleId: 'r-priceCross', title: 'ETH above 3,400' }]);
+    expect(evaluateRule(r, snap({ ETH: '3405' }), snap({ ETH: '3410' }), NOW, ctx)).toEqual([]);
   });
 
   it('fires on a downward cross for a "below" rule', () => {
     const r = rule('priceCross', { coin: 'ETH', px: 3400, dir: 'below' });
-    expect(evaluateRule(r, snap({ ETH: '3410' }), snap({ ETH: '3399' }), NOW, ctx)).toMatchObject({
-      title: 'ETH below 3,400',
-    });
-    expect(evaluateRule(r, snap({ ETH: '3390' }), snap({ ETH: '3405' }), NOW, ctx)).toBeNull();
+    expect(evaluateRule(r, snap({ ETH: '3410' }), snap({ ETH: '3399' }), NOW, ctx)).toMatchObject([
+      { title: 'ETH below 3,400' },
+    ]);
+    expect(evaluateRule(r, snap({ ETH: '3390' }), snap({ ETH: '3405' }), NOW, ctx)).toEqual([]);
   });
 
   it('reports an odds move within the window, keyed by the outcome actually trading', () => {
     const r = rule('oddsMove', { marketKey: 'rb:BTC:1d', points: 8, windowMs: 600_000 });
     const history = new Map([['#273210', [{ t: NOW - 300_000, p: 0.54 }]]]);
-    const ev = evaluateRule(
+    const evs = evaluateRule(
       r,
       snap({ '#273210': '0.55' }, [], history),
       snap({ '#273210': '0.62' }, [], history),
       NOW,
       ctx,
     );
-    expect(ev).toMatchObject({ title: 'BTC > 61,509 · 62% (+8)' });
+    expect(evs).toMatchObject([{ title: 'BTC > 61,509 · 62% (+8)' }]);
   });
 
-  it('ignores odds moves that are too small or older than the window', () => {
+  it('ignores odds moves that are too small', () => {
     const r = rule('oddsMove', { marketKey: 'rb:BTC:1d', points: 8, windowMs: 600_000 });
     const small = new Map([['#273210', [{ t: NOW - 300_000, p: 0.58 }]]]);
-    expect(evaluateRule(r, snap({}), snap({ '#273210': '0.62' }, [], small), NOW, ctx)).toBeNull();
-    const old = new Map([['#273210', [{ t: NOW - 900_000, p: 0.5 }]]]);
-    expect(evaluateRule(r, snap({}), snap({ '#273210': '0.62' }, [], old), NOW, ctx)).toBeNull();
+    expect(evaluateRule(r, snap({}), snap({ '#273210': '0.62' }, [], small), NOW, ctx)).toEqual([]);
+  });
+
+  it('measures an odds move from the price at the start of the window, even after a quiet period', () => {
+    const r = rule('oddsMove', { marketKey: 'rb:BTC:1d', points: 8, windowMs: 600_000 });
+    // 50% for the last 20 minutes (history only stores changes), then a jump to 60%.
+    const history = new Map([['#273210', [{ t: NOW - 1_200_000, p: 0.5 }]]]);
+    const evs = evaluateRule(
+      r,
+      snap({ '#273210': '0.50' }, [], history),
+      snap({ '#273210': '0.60' }, [], history),
+      NOW,
+      ctx,
+    );
+    expect(evs.map((e) => e.title)).toEqual(['BTC > 61,509 · 60% (+10)']);
+    expect(evs[0]?.lines[0]).toBe('was 50% 10 min ago');
+  });
+
+  it('fires an odds move once on entering the moved state, not on every update while moved', () => {
+    const r = rule('oddsMove', { marketKey: 'rb:BTC:1d', points: 8, windowMs: 600_000 });
+    const history = new Map([['#273210', [{ t: NOW - 300_000, p: 0.5 }]]]);
+    const stillMoved = evaluateRule(
+      r,
+      snap({ '#273210': '0.60' }, [], history),
+      snap({ '#273210': '0.61' }, [], history),
+      NOW,
+      ctx,
+    );
+    expect(stillMoved).toEqual([]);
   });
 
   it("phrases a PnL rule action as the user's own rule", () => {
@@ -111,21 +137,48 @@ describe('evaluateRule', () => {
     );
     const prev = snap({}, [eth({ markPx: 3120, upnlUsd: 60 })]); // +4%
     const next = snap({}, [eth({ markPx: 3165, upnlUsd: 82.5 })]); // +5.5%
-    const ev = evaluateRule(r, prev, next, NOW, ctx);
+    const [ev] = evaluateRule(r, prev, next, NOW, ctx);
     expect(ev?.title).toBe('ETH +5.5%');
     expect(ev?.lines).toContain('your rule: take half');
     expect(ev?.action).toEqual({ kind: 'closePerp', coin: 'ETH', fraction: 0.5 });
-    expect(evaluateRule(r, next, next, NOW, ctx)).toBeNull();
+    expect(evaluateRule(r, next, next, NOW, ctx)).toEqual([]);
   });
 
   it('warns when a position gets closer to liquidation than the rule allows', () => {
     const r = rule('liqDistance', { pct: 10 });
     const prev = snap({}, [eth({ markPx: 2800, liqPx: 2500 })]); // 10.7%
     const next = snap({}, [eth({ markPx: 2720, liqPx: 2500 })]); // 8.1%
-    expect(evaluateRule(r, prev, next, NOW, ctx)).toMatchObject({
-      title: 'ETH 8% from liquidation',
-    });
-    expect(evaluateRule(r, next, next, NOW, ctx)).toBeNull();
+    expect(evaluateRule(r, prev, next, NOW, ctx)).toMatchObject([
+      { title: 'ETH 8% from liquidation' },
+    ]);
+    expect(evaluateRule(r, next, next, NOW, ctx)).toEqual([]);
+  });
+});
+
+describe('evaluateRule — liquidation distance', () => {
+  const btc = (over: Partial<PerpPosition> = {}) =>
+    eth({ coin: 'BTC', size: 0.01, entryPx: 90_000, markPx: 88_000, liqPx: 80_000, ...over });
+
+  it('warns for every position that gets too close, each with its own cooldown key', () => {
+    const r = rule('liqDistance', { pct: 10 });
+    const prev = snap({}, [eth({ markPx: 2800 }), btc({ markPx: 90_000 })]); // 10.7%, 11.1%
+    const next = snap({}, [eth({ markPx: 2720 }), btc({ markPx: 87_000 })]); // 8.1%, 8.0%
+    const evs = evaluateRule(r, prev, next, NOW, ctx);
+    expect(evs.map((e) => e.title)).toEqual(['ETH 8% from liquidation', 'BTC 8% from liquidation']);
+    expect(new Set(evs.map((e) => e.key)).size).toBe(2);
+  });
+
+  it('warns on the first snapshot when a position is already close to liquidation', () => {
+    const r = rule('liqDistance', { pct: 10 });
+    const next = snap({}, [eth({ markPx: 2720, liqPx: 2500 })]);
+    expect(evaluateRule(r, null, next, NOW, ctx).map((e) => e.title)).toEqual([
+      'ETH 8% from liquidation',
+    ]);
+  });
+
+  it('stays quiet on the first snapshot for crossing rules (a restart is not a cross)', () => {
+    const r = rule('priceCross', { coin: 'ETH', px: 3400, dir: 'above' });
+    expect(evaluateRule(r, null, snap({ ETH: '3405' }), NOW, ctx)).toEqual([]);
   });
 });
 

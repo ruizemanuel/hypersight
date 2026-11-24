@@ -14,7 +14,14 @@ export type Snapshot = {
   oddsHistory: OddsHistory;
 };
 
-export type AlertEvent = { ruleId: string; title: string; lines: string[]; action?: Intent };
+export type AlertEvent = {
+  ruleId: string;
+  title: string;
+  lines: string[];
+  action?: Intent;
+  /** Cooldown key when one rule can raise several alerts (one per position); else the rule id. */
+  key?: string;
+};
 
 export type RuleContext = {
   market(key: string): OutcomeMarket | undefined;
@@ -90,15 +97,68 @@ function liqDistancePct(p: PerpPosition): number | null {
 /** Recurring market titles drop the period: `BTC > 61,509 · daily` → `BTC > 61,509`. */
 const marketLabel = (m: OutcomeMarket) => m.short.replace(/ · (daily|hourly|weekly)$/, '');
 
-/** Crossing semantics everywhere: a rule fires when the condition becomes true, not while it is. */
+/**
+ * The odds a move is measured from: the price at the start of the window (the last change at or
+ * before it — history only stores changes), or the oldest known price when history is younger.
+ */
+function oddsBase(
+  history: { t: number; p: number }[],
+  now: number,
+  windowMs: number,
+): { t: number; p: number } | undefined {
+  let base = history[0];
+  for (const h of history) {
+    if (h.t <= now - windowMs) base = h;
+    else break;
+  }
+  return base;
+}
+
+/**
+ * Crossing semantics everywhere: a rule fires when the condition becomes true, not while it is.
+ * The first snapshot (no `prev`) is not a crossing, except for the liquidation warning: a position
+ * already close to liquidation when the server starts must not stay silent.
+ */
 export function evaluateRule(
   rule: AlertRule,
   prev: Snapshot | null,
   next: Snapshot,
   now: number,
   ctx: RuleContext,
+): AlertEvent[] {
+  if (!rule.enabled) return [];
+  const p = rule.params;
+  if (rule.kind === 'liqDistance') {
+    const pct = num(p.pct);
+    if (!Number.isFinite(pct)) return [];
+    const events: AlertEvent[] = [];
+    for (const pos of next.view.perps) {
+      const b = liqDistancePct(pos);
+      if (b === null || b >= pct) continue;
+      const before = prev?.view.perps.find((x) => x.coin === pos.coin);
+      const a = before ? liqDistancePct(before) : null;
+      if (a !== null && a < pct) continue;
+      events.push({
+        ...withAction(rule, `${pos.coin} ${Math.round(b)}% from liquidation`, [
+          `mark ${fmtPrice(pos.markPx)} · liq ${fmtPrice(pos.liqPx as number)}`,
+        ]),
+        key: `${rule.id}:${pos.coin}`,
+      });
+    }
+    return events;
+  }
+  if (!prev) return [];
+  const ev = crossing(rule, prev, next, now, ctx);
+  return ev ? [ev] : [];
+}
+
+function crossing(
+  rule: AlertRule,
+  prev: Snapshot,
+  next: Snapshot,
+  now: number,
+  ctx: RuleContext,
 ): AlertEvent | null {
-  if (!rule.enabled || !prev) return null;
   const p = rule.params;
   switch (rule.kind) {
     case 'priceCross': {
@@ -122,13 +182,18 @@ export function evaluateRule(
       if (!m || !Number.isFinite(points) || !Number.isFinite(windowMs)) return null;
       const coin = outcomeCoin(m.outcome, 0);
       const pNow = num(next.mids[coin]);
-      const base = (next.oddsHistory.get(coin) ?? []).find((h) => now - h.t <= windowMs);
+      const base = oddsBase(next.oddsHistory.get(coin) ?? [], now, windowMs);
       if (!base || !Number.isFinite(pNow)) return null;
       const delta = Math.round((pNow - base.p) * 100);
       if (Math.abs(delta) < points) return null;
+      // Fires on entering the moved state only: still moved from the same base is not news.
+      const pPrev = num(prev.mids[coin]);
+      if (Number.isFinite(pPrev) && Math.abs(Math.round((pPrev - base.p) * 100)) >= points)
+        return null;
       const signed = delta > 0 ? `+${delta}` : `−${Math.abs(delta)}`;
+      const ago = Math.round(Math.min(now - base.t, windowMs) / 60_000);
       return withAction(rule, `${marketLabel(m)} · ${Math.round(pNow * 100)}% (${signed})`, [
-        `was ${Math.round(base.p * 100)}% ${Math.round((now - base.t) / 60_000)} min ago`,
+        `was ${Math.round(base.p * 100)}% ${ago} min ago`,
       ]);
     }
     case 'pnlPct': {
@@ -146,21 +211,6 @@ export function evaluateRule(
       return withAction(rule, `${coin} ${fmtPct(b / 100, { sign: true })}`, [
         `PnL ${fmtUsd(after.upnlUsd, { sign: true })}`,
       ]);
-    }
-    case 'liqDistance': {
-      const pct = num(p.pct);
-      if (!Number.isFinite(pct)) return null;
-      for (const pos of next.view.perps) {
-        const b = liqDistancePct(pos);
-        if (b === null || b >= pct) continue;
-        const before = prev.view.perps.find((x) => x.coin === pos.coin);
-        const a = before ? liqDistancePct(before) : null;
-        if (a !== null && a < pct) continue;
-        return withAction(rule, `${pos.coin} ${Math.round(b)}% from liquidation`, [
-          `mark ${fmtPrice(pos.markPx)} · liq ${fmtPrice(pos.liqPx as number)}`,
-        ]);
-      }
-      return null;
     }
     default:
       return null;
