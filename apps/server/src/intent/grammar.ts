@@ -191,6 +191,26 @@ export function heardNumbers(text: string): number[] {
   return [...out];
 }
 
+/**
+ * Every share of a position the user could have meant: fraction words (`half`, `two thirds`) and
+ * percent readings of the numbers heard (`15` → 0.15), for checking an LLM intent.
+ */
+export function heardFractions(text: string): number[] {
+  const tokens = tokenize(text);
+  const out = new Set<number>();
+  tokens.forEach((t, i) => {
+    if (!FRACTION_WORDS.has(t) || t === 'percent') return;
+    const denominator = t.startsWith('half') ? 2 : t.startsWith('quarter') ? 4 : 3;
+    const count = isNumeric(tokens[i - 1]) ? Number(tokens[i - 1]) : 1;
+    out.add(Math.round((count / denominator) * 1000) / 1000);
+  });
+  for (const n of heardNumbers(text)) {
+    if (n > 0 && n <= 100) out.add(n / 100);
+    if (n > 0 && n <= 1) out.add(n);
+  }
+  return [...out];
+}
+
 const CURRENCY = new Set(['dollars', 'dollar', 'bucks', 'usd']);
 const FRACTION_WORDS = new Set([
   'half',

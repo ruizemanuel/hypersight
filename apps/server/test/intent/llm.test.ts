@@ -86,6 +86,49 @@ describe('parseIntentLLM', () => {
     expect((await parseIntentLLM('x', ctx, { client, model: 'm' })).kind).toBe('unknown');
   });
 
+  // Phase 3 review I6: "never invent amounts" is enforced in code, not only in the prompt.
+  it.each<[string, unknown, boolean]>([
+    ['long sol with some money', { kind: 'openPerp', coin: 'SOL', side: 'long', usd: 50 }, false],
+    ['long sol fifty', { kind: 'openPerp', coin: 'SOL', side: 'long', usd: 50 }, true],
+    [
+      'long eth 50 dollars',
+      { kind: 'openPerp', coin: 'ETH', side: 'long', usd: 50, leverage: 5 },
+      false,
+    ],
+    [
+      'go long eth fifty bucks five x',
+      { kind: 'openPerp', coin: 'ETH', side: 'long', usd: 50, leverage: 5 },
+      true,
+    ],
+    ['stop eth at twenty nine fifty', { kind: 'setStop', coin: 'ETH', triggerPx: 2950 }, true],
+    ['put a stop on my eth', { kind: 'setStop', coin: 'ETH', triggerPx: 3000 }, false],
+    [
+      'buy yes on the bitcoin thing',
+      { kind: 'buyOutcome', marketKey: 'rb:BTC:1d', sideIndex: 0, usd: 20 },
+      false,
+    ],
+    [
+      'get twenty on yes for the bitcoin one',
+      { kind: 'buyOutcome', marketKey: 'rb:BTC:1d', sideIndex: 0, usd: 20 },
+      true,
+    ],
+    ['close some of my eth', { kind: 'closePerp', coin: 'ETH', fraction: 0.5 }, false],
+    ['trim my eth by half', { kind: 'closePerp', coin: 'ETH', fraction: 0.25 }, false],
+    ['trim my eth by half', { kind: 'closePerp', coin: 'ETH', fraction: 0.5 }, true],
+    ['close 15 of my eth', { kind: 'closePerp', coin: 'ETH', fraction: 0.15 }, true],
+    ['get me out of eth', { kind: 'closePerp', coin: 'ETH', fraction: 1 }, true],
+    [
+      'dump a few of my hawks',
+      { kind: 'sellOutcome', marketKey: 'o:24274', sideIndex: 0, fraction: 0.3 },
+      false,
+    ],
+  ])('%s → %o accepted: %s', async (text, intent, accepted) => {
+    const { client } = stubClient(ok(intent));
+    const got = await parseIntentLLM(text, ctx, { client, model: 'm' });
+    if (accepted) expect(got).toEqual(intent);
+    else expect(got).toEqual({ kind: 'unknown', reason: 'No amount heard' });
+  });
+
   it('rejects a market key that is not in the context', async () => {
     const { client } = stubClient(
       ok({ kind: 'buyOutcome', marketKey: 'o:999', sideIndex: 0, usd: 5 }),

@@ -2,7 +2,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { type Intent, IntentSchema } from '@hypersight/protocol';
 import { z } from 'zod';
-import type { IntentContext } from './grammar';
+import { heardFractions, heardNumbers, type IntentContext } from './grammar';
 
 export type LlmDeps = {
   client: Anthropic;
@@ -61,6 +61,31 @@ function withinContext(intent: Intent, ctx: IntentContext): boolean {
 }
 
 /**
+ * "Never invent amounts", enforced: every USD amount, leverage and stop price must be a number the
+ * user said, and a partial close/sell must match a fraction or percent they said.
+ */
+function amountsHeard(intent: Intent, text: string): boolean {
+  const numbers = heardNumbers(text);
+  const heard = (n: number) => numbers.some((h) => Math.abs(h - n) < 1e-9);
+  switch (intent.kind) {
+    case 'openPerp':
+      return heard(intent.usd) && (intent.leverage === undefined || heard(intent.leverage));
+    case 'buyOutcome':
+      return heard(intent.usd);
+    case 'setStop':
+      return heard(intent.triggerPx);
+    case 'closePerp':
+    case 'sellOutcome':
+      return (
+        intent.fraction >= 1 ||
+        heardFractions(text).some((f) => Math.abs(f - intent.fraction) < 0.005)
+      );
+    default:
+      return true;
+  }
+}
+
+/**
  * Claude fallback for phrasings the fast grammar does not cover. It only returns an Intent and
  * never executes anything; any failure becomes `unknown` so the HUD can say so.
  */
@@ -93,6 +118,7 @@ export async function parseIntentLLM(
     );
     if (!parsed.success) return unknown('Not understood');
     if (!withinContext(parsed.data, ctx)) return unknown('Unknown market or coin');
+    if (!amountsHeard(parsed.data, text)) return unknown('No amount heard');
     return parsed.data;
   } catch (err) {
     deps.log?.('[intent] LLM call failed', err);
