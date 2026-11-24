@@ -55,6 +55,12 @@ export type ProposalDeps = {
   network: string;
   now: () => number;
   newId?: () => string;
+  /** Tells fill alerts which fills come from orders the user just confirmed (see OwnOrders). */
+  ownOrders?: {
+    begin(coins: string[]): void;
+    end(coins: string[], oids: number[]): void;
+    rememberStop(coin: string, triggerPx: number): void;
+  };
 };
 
 type Draft = Omit<Proposal, 'id' | 'createdAt' | 'expiresAt' | 'state' | 'view'> & {
@@ -218,7 +224,16 @@ export class ProposalService {
     }
     this.audit('confirm', p.id, p.view.title, null);
     this.lastWriteAt = now;
-    let result: ExecResult;
+    const coins = [
+      ...new Set(
+        p.plan.steps.flatMap((st) =>
+          st.kind === 'order' || st.kind === 'trigger' ? [st.coin] : [],
+        ),
+      ),
+    ];
+    const own = this.deps.ownOrders;
+    let result: ExecResult = { status: 'error', message: 'Execution failed' };
+    own?.begin(coins);
     try {
       result =
         p.intent.kind === 'cancelAll'
@@ -232,7 +247,11 @@ export class ProposalService {
           80,
         ),
       };
+    } finally {
+      own?.end(coins, result.oids ?? []);
     }
+    if (p.intent.kind === 'setStop' && result.status === 'resting')
+      own?.rememberStop(p.intent.coin, p.intent.triggerPx);
     // The order went out: record the result first so nothing below can make it confirmable again.
     p.result = result;
     p.state = 'done';

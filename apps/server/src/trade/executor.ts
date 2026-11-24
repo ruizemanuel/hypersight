@@ -37,6 +37,8 @@ export type ExecResult = {
   filledSz?: number;
   requestedSz?: number;
   avgPx?: number;
+  /** Exchange ids of the orders that filled or rested (fill alerts skip them). */
+  oids?: number[];
   message: string;
 };
 

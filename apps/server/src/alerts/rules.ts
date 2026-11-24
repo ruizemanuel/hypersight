@@ -26,6 +26,10 @@ export type AlertEvent = {
 export type RuleContext = {
   market(key: string): OutcomeMarket | undefined;
   byOutcome(outcome: number): OutcomeMarket | undefined;
+  /** True for fills of orders the user just confirmed: their result card already said it. */
+  isOwnFill?(fill: FillLike): boolean;
+  /** Trigger price of a stop the user set on that coin, if any. */
+  stopFor?(coin: string): number | undefined;
 };
 
 /** The subset of a `userFills` entry the alert rules read. */
@@ -37,6 +41,7 @@ export type FillLike = {
   px?: unknown;
   closedPnl?: unknown;
   crossed?: unknown;
+  oid?: unknown;
 };
 
 const num = (v: unknown): number =>
@@ -219,7 +224,8 @@ function crossing(
 
 /**
  * Fill-driven rules. `settled`: the synthetic `dir: "Settlement"` fill (spike §5; px = payout per
- * share). `fill`: only resting orders (`crossed: false`) — immediate fills already showed a result.
+ * share). `fill`: every fill except those of orders the user just confirmed (told by order id, not
+ * by `crossed`: a triggered stop is a taker fill, a confirmed outcome buy can be a maker fill).
  */
 export function evaluateFill(rule: AlertRule, fill: FillLike, ctx: RuleContext): AlertEvent | null {
   if (!rule.enabled || typeof fill !== 'object' || fill === null) return null;
@@ -245,14 +251,20 @@ export function evaluateFill(rule: AlertRule, fill: FillLike, ctx: RuleContext):
     );
   }
   if (rule.kind === 'fill') {
-    if (settlement || fill.crossed !== false) return null;
+    if (settlement || ctx.isOwnFill?.(fill)) return null;
     const side = fill.side === 'B' ? 'Bought' : 'Sold';
     const name = coin.startsWith('#')
       ? (ctx.byOutcome(Math.floor(Number(coin.slice(1)) / 10))?.short ?? coin)
       : coin;
-    return withAction(rule, 'Order filled', [
-      `${side} ${num(fill.sz)} ${name} @ ${fmtPrice(num(fill.px))}`,
-    ]);
+    const what = `${side} ${num(fill.sz)} ${name} @ ${fmtPrice(num(fill.px))}`;
+    const closing = typeof fill.dir === 'string' && fill.dir.startsWith('Close');
+    if (closing && ctx.stopFor?.(coin) !== undefined) {
+      const pnl = num(fill.closedPnl);
+      return withAction(rule, `Stop hit · ${coin}`, [
+        Number.isFinite(pnl) ? `${what} · PnL ${fmtUsd(pnl, { sign: true })}` : what,
+      ]);
+    }
+    return withAction(rule, 'Order filled', [what]);
   }
   return null;
 }

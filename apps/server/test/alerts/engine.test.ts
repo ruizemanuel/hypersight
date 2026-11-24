@@ -99,6 +99,34 @@ describe('AlertEngine', () => {
     expect(s.pushed.map((e) => e.title)).toEqual(['NO won · +$0.76']);
   });
 
+  it('skips the fills of orders the user just confirmed, by order id', () => {
+    const rules: AlertRule[] = [
+      { id: 'fills', kind: 'fill', params: {}, cooldownMs: 0, enabled: true },
+    ];
+    const stream = Object.assign(new EventEmitter(), { view: () => view, mids: () => ({}) });
+    const pushed: AlertEvent[] = [];
+    const engine = new AlertEngine({
+      stream,
+      rules: { list: () => rules },
+      catalogue: new Catalogue(),
+      push: (ev) => pushed.push(ev),
+      ownOrders: { isOwn: (f) => f.oid === 77, stopFor: () => undefined },
+      now: () => T0,
+    });
+    engine.start();
+    const fill = {
+      coin: 'ETH',
+      dir: 'Open Long',
+      side: 'B',
+      sz: '0.01',
+      px: '3000',
+      crossed: true,
+    };
+    stream.emit('fill', { ...fill, oid: 77 });
+    stream.emit('fill', { ...fill, oid: 78 });
+    expect(pushed.map((e) => e.title)).toEqual(['Order filled']);
+  });
+
   it('survives a malformed fill or a throwing push', () => {
     const rules: AlertRule[] = [
       { id: 'settled', kind: 'settled', params: {}, cooldownMs: 0, enabled: true },

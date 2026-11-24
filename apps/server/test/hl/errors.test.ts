@@ -55,6 +55,18 @@ describe('mapOrderStatuses (partial fills are never reported as filled)', () => 
     expect(mapOrderStatuses(['waitingForTrigger'], 1)).toMatchObject({ status: 'resting' });
   });
 
+  it('collects the order ids of filled and resting orders', () => {
+    const r = mapOrderStatuses(
+      [
+        { filled: { totalSz: '0.002', avgPx: '3000', oid: 1 } },
+        { filled: { totalSz: '0.002', avgPx: '3010', oid: 2 } },
+      ],
+      0.004,
+    );
+    expect(r.oids).toEqual([1, 2]);
+    expect(mapOrderStatuses([{ resting: { oid: 5 } }], 1).oids).toEqual([5]);
+  });
+
   it('treats an empty or unexpected response as an error', () => {
     expect(mapOrderStatuses([], 1)).toMatchObject({ status: 'error' });
     expect(mapOrderStatuses([{ weird: true }], 1)).toMatchObject({ status: 'error' });

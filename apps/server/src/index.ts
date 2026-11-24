@@ -20,6 +20,7 @@ import { openDb } from './store/db';
 import { createRepos } from './store/repos';
 import { createGramBalance } from './ton/balance';
 import { type ExecResult, type Executor, FakeExecutor } from './trade/executor';
+import { OwnOrders } from './trade/own-orders';
 import { PaperExecutor } from './trade/paper-executor';
 import { ProposalService } from './trade/proposals';
 import { loadUsdcToken, TestnetExecutor } from './trade/testnet-executor';
@@ -111,6 +112,8 @@ function main(): void {
   const notReady = (): never => {
     throw new Error('market data not ready yet');
   };
+  // Fill alerts skip the orders the user just confirmed (shared by proposals and alerts).
+  const ownOrders = new OwnOrders();
   const proposals = new ProposalService({
     stream: {
       view: () => stream?.view() ?? notReady(),
@@ -125,6 +128,7 @@ function main(): void {
     perpMeta,
     network: 'testnet',
     now: Date.now,
+    ownOrders,
   });
 
   const agentAddress = cfg.agentPrivateKey
@@ -251,6 +255,7 @@ function main(): void {
         push: (ev) => {
           for (const session of registry.all()) sessionController.alert(session, ev);
         },
+        ownOrders,
         log,
       });
       alerts.start();

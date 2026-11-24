@@ -199,18 +199,55 @@ describe('evaluateFill', () => {
     expect(evaluateFill(rule('fill', {}), fill, ctx)).toBeNull();
   });
 
-  it('reports a resting order that filled, not the immediate fills the user just confirmed', () => {
-    const resting = {
-      coin: 'ETH',
-      dir: 'Open Long',
-      side: 'B',
-      sz: '0.01',
-      px: '3000',
-      closedPnl: '0',
-      crossed: false,
-    };
-    expect(evaluateFill(rule('fill', {}), resting, ctx)).toMatchObject({ title: 'Order filled' });
-    expect(evaluateFill(rule('fill', {}), { ...resting, crossed: true }, ctx)).toBeNull();
+  const resting = {
+    coin: 'ETH',
+    dir: 'Open Long',
+    side: 'B',
+    sz: '0.01',
+    px: '3000',
+    closedPnl: '0',
+    crossed: false,
+    oid: 501,
+  };
+
+  it('reports a resting order that filled', () => {
+    expect(evaluateFill(rule('fill', {}), resting, ctx)).toMatchObject({
+      title: 'Order filled',
+      lines: ['Bought 0.01 ETH @ 3,000'],
+    });
     expect(evaluateFill(rule('settled', {}), resting, ctx)).toBeNull();
+  });
+
+  it('skips the fills of an order the user just confirmed, maker or taker', () => {
+    const own = { ...ctx, isOwnFill: (f: { oid?: unknown }) => f.oid === 77 };
+    // A confirmed outcome buy can come back as a maker fill (crossed: false).
+    const confirmedBuy = { ...resting, coin: '#273210', dir: 'Buy', oid: 77 };
+    expect(evaluateFill(rule('fill', {}), confirmedBuy, own)).toBeNull();
+    expect(evaluateFill(rule('fill', {}), { ...confirmedBuy, crossed: true }, own)).toBeNull();
+    expect(evaluateFill(rule('fill', {}), resting, own)).toMatchObject({ title: 'Order filled' });
+  });
+
+  it('reports a triggered stop, a taker fill the user did not just confirm, as a stop hit', () => {
+    const stopFill = {
+      coin: 'ETH',
+      dir: 'Close Long',
+      side: 'A',
+      sz: '0.5',
+      px: '2950',
+      closedPnl: '-188.4',
+      crossed: true,
+      oid: 900,
+    };
+    const withStop = {
+      ...ctx,
+      isOwnFill: () => false,
+      stopFor: (c: string) => (c === 'ETH' ? 2950 : undefined),
+    };
+    expect(evaluateFill(rule('fill', {}), stopFill, withStop)).toMatchObject({
+      title: 'Stop hit · ETH',
+      lines: ['Sold 0.5 ETH @ 2,950 · PnL −$188.40'],
+    });
+    // Without a known stop on that coin it is still reported, as a plain fill.
+    expect(evaluateFill(rule('fill', {}), stopFill, ctx)).toMatchObject({ title: 'Order filled' });
   });
 });

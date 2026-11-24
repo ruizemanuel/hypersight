@@ -78,6 +78,7 @@ export function mapOrderStatuses(statuses: unknown[], requestedSz: number): Exec
   let resting = false;
   let error: string | null = null;
   let recognised = 0;
+  const oids: number[] = [];
   for (const s of statuses) {
     if (typeof s === 'string') {
       // "waitingForTrigger" / "waitingForFill" (trigger orders) or "success".
@@ -87,10 +88,12 @@ export function mapOrderStatuses(statuses: unknown[], requestedSz: number): Exec
     }
     if (typeof s !== 'object' || s === null) continue;
     const o = s as {
-      filled?: { totalSz?: unknown; avgPx?: unknown };
-      resting?: unknown;
+      filled?: { totalSz?: unknown; avgPx?: unknown; oid?: unknown };
+      resting?: { oid?: unknown };
       error?: unknown;
     };
+    const oid = o.filled?.oid ?? o.resting?.oid;
+    if (typeof oid === 'number') oids.push(oid);
     if (o.filled) {
       const sz = num(o.filled.totalSz);
       filledSz += sz;
@@ -104,6 +107,7 @@ export function mapOrderStatuses(statuses: unknown[], requestedSz: number): Exec
       recognised++;
     }
   }
+  const ids = oids.length > 0 ? { oids } : {};
   if (filledSz > 0) {
     const avgPx = Number((notional / filledSz).toPrecision(10));
     const sz = Number(filledSz.toPrecision(12));
@@ -113,6 +117,7 @@ export function mapOrderStatuses(statuses: unknown[], requestedSz: number): Exec
         filledSz: sz,
         requestedSz,
         avgPx,
+        ...ids,
         message: `Filled ${fmt(sz)} @ ${fmt(avgPx)}`,
       };
     }
@@ -121,10 +126,11 @@ export function mapOrderStatuses(statuses: unknown[], requestedSz: number): Exec
       filledSz: sz,
       requestedSz,
       avgPx,
+      ...ids,
       message: `Partially filled ${fmt(sz)}/${fmt(requestedSz)} @ ${fmt(avgPx)}`,
     };
   }
-  if (resting) return { status: 'resting', requestedSz, message: 'Order resting' };
+  if (resting) return { status: 'resting', requestedSz, ...ids, message: 'Order resting' };
   if (error !== null) return { status: 'none', requestedSz, message: humanizeHlError(error) };
   return {
     status: 'error',

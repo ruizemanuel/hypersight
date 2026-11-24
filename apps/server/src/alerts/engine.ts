@@ -25,6 +25,8 @@ export type AlertEngineDeps = {
   rules: { list(): AlertRule[] };
   catalogue: Pick<Catalogue, 'byKey' | 'byOutcome'>;
   push: (ev: AlertEvent) => void;
+  /** Orders the user just confirmed (their fills are skipped) and the stops they set. */
+  ownOrders?: { isOwn(fill: FillLike): boolean; stopFor(coin: string): number | undefined };
   now?: () => number;
   log?: (msg: string, err?: unknown) => void;
 };
@@ -49,9 +51,11 @@ export class AlertEngine {
 
   constructor(private readonly deps: AlertEngineDeps) {
     this.now = deps.now ?? Date.now;
+    const own = deps.ownOrders;
     this.ctx = {
       market: (key) => deps.catalogue.byKey(key),
       byOutcome: (o) => deps.catalogue.byOutcome(o),
+      ...(own ? { isOwnFill: (f) => own.isOwn(f), stopFor: (c) => own.stopFor(c) } : {}),
     };
   }
 

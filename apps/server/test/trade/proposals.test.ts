@@ -7,7 +7,7 @@ import { Catalogue, type OutcomeMarket } from '../../src/hl/outcomes';
 import { openDb } from '../../src/store/db';
 import { createRepos, type Repos } from '../../src/store/repos';
 import { type ExecResult, FakeExecutor, type PlaceOrder } from '../../src/trade/executor';
-import { type Proposal, ProposalService } from '../../src/trade/proposals';
+import { type Proposal, type ProposalDeps, ProposalService } from '../../src/trade/proposals';
 
 const T0 = Date.UTC(2026, 10, 24, 12, 0);
 
@@ -48,7 +48,11 @@ type Setup = {
   view: AccountView;
 };
 
-function setup(over: Partial<AccountView> = {}, books: Record<string, Book> = {}): Setup {
+function setup(
+  over: Partial<AccountView> = {},
+  books: Record<string, Book> = {},
+  ownOrders?: ProposalDeps['ownOrders'],
+): Setup {
   const clock = { now: T0 };
   const catalogue = new Catalogue({ now: () => clock.now });
   catalogue.reset({ outcomes: [btcDailySpec], questions: [] }, []);
@@ -82,6 +86,7 @@ function setup(over: Partial<AccountView> = {}, books: Record<string, Book> = {}
     perpMeta,
     network: 'testnet',
     now: () => clock.now,
+    ...(ownOrders ? { ownOrders } : {}),
   });
   return { service, executor, repos, catalogue, clock, books: allBooks, view };
 }
@@ -517,6 +522,52 @@ describe('ProposalService.confirm', () => {
       message: 'Could not check your limits — nothing sent',
     });
     expect(s.executor.plans).toHaveLength(0);
+  });
+
+  it('marks the coin in flight during the order and remembers the order ids it returned', async () => {
+    const calls: string[] = [];
+    const tracked = setup(
+      {},
+      {},
+      {
+        begin: (coins) => calls.push(`begin ${coins.join(',')}`),
+        end: (coins, oids) => calls.push(`end ${coins.join(',')} ${oids.join(',')}`),
+        rememberStop: (coin, px) => calls.push(`stop ${coin} ${px}`),
+      },
+    );
+    tracked.executor.execute = async (plan) => {
+      calls.push('execute');
+      tracked.executor.plans.push(plan);
+      return { status: 'filled', filledSz: 0.25, avgPx: 3411, oids: [77], message: 'Filled' };
+    };
+    const p = await proposed(tracked, { kind: 'closePerp', coin: 'ETH', fraction: 0.5 });
+    await tracked.service.confirm(p.id);
+    expect(calls).toEqual(['begin ETH', 'execute', 'end ETH 77']);
+  });
+
+  it('remembers a stop the user set, and ends the in-flight mark even when the executor throws', async () => {
+    const calls: string[] = [];
+    const tracked = setup(
+      {},
+      {},
+      {
+        begin: (coins) => calls.push(`begin ${coins.join(',')}`),
+        end: (coins, oids) => calls.push(`end ${coins.join(',')} ${oids.join(',')}`),
+        rememberStop: (coin, px) => calls.push(`stop ${coin} ${px}`),
+      },
+    );
+    tracked.executor.result = { status: 'resting', message: 'Stop set' };
+    const stop = await proposed(tracked, { kind: 'setStop', coin: 'ETH', triggerPx: 3000 });
+    await tracked.service.confirm(stop.id);
+    expect(calls).toEqual(['begin ETH', 'end ETH ', 'stop ETH 3000']);
+    calls.length = 0;
+    tracked.clock.now += 5000;
+    tracked.executor.execute = async () => {
+      throw new Error('socket hang up');
+    };
+    const close = await proposed(tracked, { kind: 'closePerp', coin: 'ETH', fraction: 0.5 });
+    await tracked.service.confirm(close.id);
+    expect(calls).toEqual(['begin ETH', 'end ETH ']);
   });
 
   it('turns an executor failure into an error result', async () => {
