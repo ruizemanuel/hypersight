@@ -519,8 +519,20 @@ describe('SessionController — held alerts are never stranded', () => {
     await s.controller.onTranscript(s.session, 'close half my eth', {});
     const p = confirmOf(s.overlays().at(-1));
     s.controller.alert(s.session, takeHalf);
-    s.controller.alert(s.session, { ruleId: 'liq', key: 'liq:ETH', urgent: true, title: 'ETH 7% from liquidation', lines: [] });
-    s.controller.alert(s.session, { ruleId: 'liq', key: 'liq:SOL', urgent: true, title: 'SOL 8% from liquidation', lines: [] });
+    s.controller.alert(s.session, {
+      ruleId: 'liq',
+      key: 'liq:ETH',
+      urgent: true,
+      title: 'ETH 7% from liquidation',
+      lines: [],
+    });
+    s.controller.alert(s.session, {
+      ruleId: 'liq',
+      key: 'liq:SOL',
+      urgent: true,
+      title: 'SOL 8% from liquidation',
+      lines: [],
+    });
     await s.controller.onClientMsg(s.session, { t: 'cancel', proposalId: p.id });
     const titles: string[] = [];
     for (let i = 0; i < 3; i++) {
