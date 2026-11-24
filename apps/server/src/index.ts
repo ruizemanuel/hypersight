@@ -1,4 +1,5 @@
 import type { Server } from 'node:http';
+import { fileURLToPath } from 'node:url';
 import Anthropic from '@anthropic-ai/sdk';
 import { serve } from '@hono/node-server';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -14,10 +15,13 @@ import { createApp } from './http/app';
 import { buildIntentContext, keytermsFor } from './intent/aliases';
 import type { IntentContext } from './intent/grammar';
 import { resolveIntent } from './intent/resolve';
+import { PairingCodes } from './pairing/codes';
+import { open } from './pairing/crypto';
+import { createLinkApi } from './pairing/link-api';
 import { type Focus, SessionController } from './session/controller';
 import { SessionRegistry } from './session/registry';
 import { openDb } from './store/db';
-import { createRepos } from './store/repos';
+import { createRepos, type DeviceRecord } from './store/repos';
 import { createGramBalance } from './ton/balance';
 import { type ExecResult, type Executor, FakeExecutor } from './trade/executor';
 import { OwnOrders } from './trade/own-orders';
@@ -29,6 +33,12 @@ import { VoiceRouter } from './voice/router';
 import { startGateway } from './ws/gateway';
 
 const MARKET_RETRY_MS = 5000;
+/** The built pairing page (apps/link/dist); LINK_DIST overrides it in a container. */
+const LINK_DIST = fileURLToPath(new URL('../../link/dist', import.meta.url));
+
+type Addr = `0x${string}`;
+/** The account the server reads and trades: from .env, or from the latest paired device. */
+type Account = { master: Addr; agentKey: Addr | null };
 const NOT_READY: ExecResult = { status: 'none', message: 'Trading not ready yet — nothing sent' };
 
 const usdText = (n: number) => `$${n.toLocaleString('en-US')}`;
@@ -107,7 +117,34 @@ function main(): void {
 
   // Filled from `meta` once market data is up (shared by reference with proposals and executor).
   const perpMeta: PerpMeta[] = [];
-  const user = cfg.accountAddress as `0x${string}`;
+  const pinned = cfg.accountAddress?.toLowerCase();
+  const accountOf = (d: DeviceRecord): Account | null => {
+    if (pinned && d.master !== pinned) {
+      log('[pairing] the paired device belongs to another account than HL_ACCOUNT_ADDRESS');
+      return null;
+    }
+    return {
+      master: d.master as Addr,
+      agentKey: open(d.agentKeySealed, cfg.encryptionKey) as Addr,
+    };
+  };
+  let account: Account | null = cfg.pairing
+    ? (() => {
+        const d = repos.devices.latest();
+        return d ? accountOf(d) : null;
+      })()
+    : {
+        master: cfg.accountAddress as Addr,
+        agentKey: (cfg.agentPrivateKey as Addr | undefined) ?? null,
+      };
+  if (cfg.pairing) {
+    log(
+      account
+        ? `[pairing] trading with the latest paired device's agent`
+        : '[pairing] no device paired yet: open /link from the glasses code',
+    );
+  }
+  let usdcToken: string | null = null;
   let executor: Executor | null = cfg.executor === 'fake' ? new FakeExecutor() : null;
   const notReady = (): never => {
     throw new Error('market data not ready yet');
@@ -131,15 +168,15 @@ function main(): void {
     ownOrders,
   });
 
-  const agentAddress = cfg.agentPrivateKey
-    ? privateKeyToAccount(cfg.agentPrivateKey as `0x${string}`).address.toLowerCase()
-    : null;
   async function modeInfo(): Promise<string[]> {
     const risk = repos.settings.get().risk;
     const limits = `Limits ${usdText(risk.maxOrderUsd)}/order · ${usdText(risk.maxDailyUsd)}/day`;
-    if (!agentAddress) return [`${cfg.executor} executor · no agent wallet`, limits];
+    const agentAddress = account?.agentKey
+      ? privateKeyToAccount(account.agentKey).address.toLowerCase()
+      : null;
+    if (!account || !agentAddress) return [`${cfg.executor} executor · no agent wallet`, limits];
     try {
-      const agents = await hl.info.extraAgents({ user });
+      const agents = await hl.info.extraAgents({ user: account.master });
       const a = agents.find((x) => x.address.toLowerCase() === agentAddress);
       const agent = !a
         ? 'Agent wallet not approved'
@@ -193,10 +230,40 @@ function main(): void {
       session.on('attach', () => publisher.publishTo(session));
       sessionController.attach(session);
     },
+    devices: repos.devices,
   });
+
+  /** A device just paired: start market data with its account, or switch to its agent. */
+  function onPaired(device: DeviceRecord): void {
+    const next = accountOf(device);
+    if (!next) return;
+    const first = account === null;
+    account = next;
+    log(`[pairing] device paired · agent ${device.agentAddress}`);
+    if (first) void startMarket();
+    else
+      void useAgent(next).catch((err) => log('[pairing] could not switch to the new agent', err));
+  }
 
   const app = createApp({
     sessionToken: cfg.sessionToken,
+    authorize: (token) => registry.isValid(token),
+    pairing: cfg.pairing,
+    ...(cfg.pairing
+      ? {
+          link: {
+            routes: createLinkApi({
+              codes: new PairingCodes(cfg.encryptionKey),
+              devices: repos.devices,
+              userRole: (agent) => hl.info.userRole({ user: agent as Addr }),
+              ...(pinned ? { pinnedMaster: pinned } : {}),
+              onPaired,
+              log,
+            }),
+            distDir: process.env.LINK_DIST || LINK_DIST,
+          },
+        }
+      : {}),
     api: {
       repos,
       catalogue,
@@ -226,7 +293,24 @@ function main(): void {
     { log },
   );
 
+  /** The testnet executor signs with the account's agent (re-created when a new one pairs). */
+  async function useAgent(acc: Account): Promise<void> {
+    if (cfg.executor !== 'testnet' || !acc.agentKey) return;
+    usdcToken ??= await loadUsdcToken(hl.info);
+    executor = new TestnetExecutor({
+      exchange: hl.exchangeFor(acc.agentKey),
+      info: hl.info,
+      master: acc.master,
+      usdcToken,
+      perpMeta,
+      now: Date.now,
+    });
+  }
+
   async function startMarket(): Promise<void> {
+    const acc = account;
+    if (!acc) return; // pairing mode: starts once a device pairs
+    const user = acc.master;
     try {
       const [meta, abstraction] = await Promise.all([
         hl.info.meta(),
@@ -259,15 +343,8 @@ function main(): void {
         log,
       });
       alerts.start();
-      if (cfg.executor === 'testnet' && hl.exchange && !executor) {
-        executor = new TestnetExecutor({
-          exchange: hl.exchange,
-          info: hl.info,
-          master: user,
-          usdcToken: await loadUsdcToken(hl.info),
-          perpMeta,
-          now: Date.now,
-        });
+      if (cfg.executor === 'testnet' && !executor) {
+        await useAgent(account ?? acc);
       } else if (cfg.executor === 'paper' && !executor) {
         executor = new PaperExecutor({
           book: (coin) => s.book(coin),

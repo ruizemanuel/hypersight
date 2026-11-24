@@ -347,6 +347,15 @@ describe('pageFor', () => {
     expect(val({ ...withDeck, status: 'replaced' })).toBe('Opened on another device');
   });
 
+  it('shows the pairing code and where to open the link page, with a way out', () => {
+    const pairing = run([{ type: 'pairing', code: 'K7Q-4MD', url: '192.168.1.5:8787/link' }]).state;
+    const text = (name: string) => pageFor(pairing, 0).texts.find((t) => t.name === name)?.text;
+    expect(text('val')).toBe('K7Q-4MD');
+    expect(text('body')).toContain('Pair: open 192.168.1.5:8787/link');
+    expect(text('ftr')).toBe('2×TAP exit');
+    expect(step(pairing, { type: 'doubleTap' }).state.mode).toBe('exit');
+  });
+
   it('marks a cached deck offline until the socket is open', () => {
     const cached = run([{ type: 'deck', cards: deck }], {
       ...initialHudState,

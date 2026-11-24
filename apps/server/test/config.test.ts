@@ -63,6 +63,18 @@ describe('loadConfig', () => {
     expect(loadConfig({ ...env, EXECUTOR: 'paper' }).agentPrivateKey).toBeUndefined();
   });
 
+  it('pairs devices instead of using an agent key from the environment when PAIRING=1', () => {
+    const cfg = loadConfig({ ...valid, PAIRING: '1' });
+    expect(cfg.pairing).toBe(true);
+    expect(cfg.agentPrivateKey).toBeUndefined();
+    // The account address then only pins which master may pair.
+    expect(cfg.accountAddress).toBe(valid.HL_ACCOUNT_ADDRESS);
+    const { HL_AGENT_PRIVATE_KEY: _k, HL_ACCOUNT_ADDRESS: _a, ...bare } = valid;
+    const open = loadConfig({ ...bare, PAIRING: '1' });
+    expect(open.accountAddress).toBeUndefined();
+    expect(loadConfig(valid).pairing).toBe(false);
+  });
+
   it('rejects an unknown executor', () => {
     expect(() => loadConfig({ ...valid, EXECUTOR: 'mainnet' })).toThrow(/EXECUTOR/);
   });

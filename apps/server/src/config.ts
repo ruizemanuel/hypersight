@@ -8,10 +8,15 @@ export type Config = {
   port: number;
   hlApiUrl: string;
   hlWsUrl: string;
-  /** Master account: every Hyperliquid query uses this address, never the agent's. */
-  accountAddress: string;
-  /** Agent (API wallet) key; only present when the executor is `testnet`. */
+  /**
+   * Master account: every Hyperliquid query uses this address, never the agent's. In pairing mode
+   * it is optional and only pins which master may pair.
+   */
+  accountAddress: string | undefined;
+  /** Agent (API wallet) key; only present when the executor is `testnet` (never when pairing). */
   agentPrivateKey: string | undefined;
+  /** PAIRING=1: the master and a trade-only agent come from device-code pairing (/link). */
+  pairing: boolean;
   /** Missing key disables the Claude intent fallback (the fast grammar still works). */
   anthropicKey: string | undefined;
   /** Missing key disables voice (every action stays reachable by tap). */
@@ -62,18 +67,25 @@ export function loadConfig(env: Env): Config {
     throw new ConfigError('PORT must be an integer between 0 and 65535');
   }
 
-  const agentRaw = executor === 'testnet' ? required('HL_AGENT_PRIVATE_KEY') : undefined;
+  const pairing = get('PAIRING') === '1';
+  const agentRaw =
+    executor === 'testnet' && !pairing ? required('HL_AGENT_PRIVATE_KEY') : undefined;
+  const accountRaw = pairing ? get('HL_ACCOUNT_ADDRESS') : required('HL_ACCOUNT_ADDRESS');
 
   return {
     port,
     hlApiUrl: testnetUrl('HL_API_URL', get('HL_API_URL') ?? TESTNET_API, ['https:']),
     hlWsUrl: testnetUrl('HL_WS_URL', get('HL_WS_URL') ?? TESTNET_WS, ['wss:']),
-    accountAddress: matching(
-      'HL_ACCOUNT_ADDRESS',
-      required('HL_ACCOUNT_ADDRESS'),
-      ADDRESS_RE,
-      'a 0x-prefixed 20-byte hex address',
-    ),
+    accountAddress:
+      accountRaw === undefined
+        ? undefined
+        : matching(
+            'HL_ACCOUNT_ADDRESS',
+            accountRaw,
+            ADDRESS_RE,
+            'a 0x-prefixed 20-byte hex address',
+          ),
+    pairing,
     agentPrivateKey:
       agentRaw === undefined
         ? undefined

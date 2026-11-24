@@ -15,7 +15,14 @@ import {
   type PageSpec,
 } from '../render/layout';
 
-export type HudStatus = 'connecting' | 'open' | 'closed' | 'replaced' | 'unauthorized' | 'setup';
+export type HudStatus =
+  | 'connecting'
+  | 'open'
+  | 'closed'
+  | 'replaced'
+  | 'unauthorized'
+  | 'setup'
+  | 'pairing';
 
 export type HudState = {
   cards: CardModel[];
@@ -32,6 +39,8 @@ export type HudState = {
   live: boolean;
   /** Server clock minus phone clock (ms), from `welcome`: confirm deadlines are server times. */
   clockOffset: number;
+  /** While pairing: the code to type on the link page and where that page is. */
+  pairing?: { code: string; url: string };
 };
 
 export type HudEvent =
@@ -41,6 +50,7 @@ export type HudEvent =
   | { type: 'status'; status: HudStatus }
   | { type: 'exitFailed' }
   | { type: 'clock'; serverTime: number; at: number }
+  | { type: 'pairing'; code: string; url: string }
   /** Once a second: expires overlays that must not stay up forever. */
   | { type: 'tick'; now: number };
 
@@ -85,7 +95,9 @@ const done = (state: HudState, ...effects: Effect[]): Result => ({ state, effect
 
 /** Statuses that block the deck with a full-screen message. */
 function blocking(status: HudStatus): boolean {
-  return status === 'replaced' || status === 'unauthorized' || status === 'setup';
+  return (
+    status === 'replaced' || status === 'unauthorized' || status === 'setup' || status === 'pairing'
+  );
 }
 
 export function step(s: HudState, ev: HudEvent): Result {
@@ -124,6 +136,8 @@ export function step(s: HudState, ev: HudEvent): Result {
       return done({ ...s, exiting: false, mode: 'deck' });
     case 'clock':
       return done({ ...s, clockOffset: ev.serverTime - ev.at });
+    case 'pairing':
+      return done({ ...s, status: 'pairing', pairing: { code: ev.code, url: ev.url } });
     case 'tick':
       // "No tap → auto-cancel": the server refuses a late confirm anyway; clear it and say so.
       if (s.overlay?.kind === 'confirm' && s.overlay.proposal.expiresAt <= ev.now + s.clockOffset) {
@@ -293,6 +307,14 @@ export function pageFor(s: HudState, now: number): PageSpec {
       title,
       value: 'Token refused',
       lines: ['Paste the current token on the phone'],
+      hint: EXIT_HINT,
+    });
+  }
+  if (s.status === 'pairing' && s.pairing) {
+    return layoutStatus({
+      title,
+      value: s.pairing.code,
+      lines: [`Pair: open ${s.pairing.url}`, 'on a computer and type this code'],
       hint: EXIT_HINT,
     });
   }

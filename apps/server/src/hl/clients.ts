@@ -12,8 +12,10 @@ export type HlClients = {
   info: InfoClient;
   /** Created on first access: constructing the WebSocket transport opens a connection. */
   readonly subs: SubscriptionClient;
-  /** Signs with the agent (API wallet) key; null unless the executor is `testnet`. */
+  /** Signs with the agent (API wallet) key from the environment; null when pairing or not testnet. */
   exchange: ExchangeClient | null;
+  /** An exchange client signed by another agent key (a paired device's). */
+  exchangeFor(agentKey: `0x${string}`): ExchangeClient;
   close(): Promise<void>;
 };
 
@@ -25,11 +27,12 @@ export function createHlClients(cfg: Config): HlClients {
   const http = new HttpTransport({ isTestnet: true, apiUrl: cfg.hlApiUrl });
   const info = new InfoClient({ transport: http });
 
+  const exchangeFor = (agentKey: `0x${string}`): ExchangeClient =>
+    new ExchangeClient({ transport: http, wallet: privateKeyToAccount(agentKey) });
   let exchange: ExchangeClient | null = null;
-  if (cfg.executor === 'testnet') {
+  if (cfg.executor === 'testnet' && !cfg.pairing) {
     if (!cfg.agentPrivateKey) throw new ConfigError('HL_AGENT_PRIVATE_KEY is required for testnet');
-    const wallet = privateKeyToAccount(cfg.agentPrivateKey as `0x${string}`);
-    exchange = new ExchangeClient({ transport: http, wallet });
+    exchange = exchangeFor(cfg.agentPrivateKey as `0x${string}`);
   }
 
   let ws: WebSocketTransport | null = null;
@@ -38,6 +41,7 @@ export function createHlClients(cfg: Config): HlClients {
   return {
     info,
     exchange,
+    exchangeFor,
     get subs(): SubscriptionClient {
       if (!subs) {
         ws = new WebSocketTransport({ isTestnet: true, url: cfg.hlWsUrl });

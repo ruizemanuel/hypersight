@@ -9,6 +9,7 @@ const base: Config = {
   hlWsUrl: 'wss://api.hyperliquid-testnet.xyz/ws',
   accountAddress: '0x1111111111111111111111111111111111111111',
   agentPrivateKey: `0x${'ab'.repeat(32)}`,
+  pairing: false,
   anthropicKey: undefined,
   elevenLabsKey: undefined,
   encryptionKey: 'cd'.repeat(32),
@@ -45,6 +46,13 @@ describe('createHlClients', () => {
     expect(() => createHlClients({ ...base, hlWsUrl: 'wss://api.hyperliquid.xyz/ws' })).toThrow(
       /testnet/,
     );
+  });
+
+  it('has no exchange of its own when pairing, and signs with a paired agent key on demand', () => {
+    const hl = createHlClients({ ...base, pairing: true, agentPrivateKey: undefined });
+    expect(hl.exchange).toBeNull();
+    const ex = hl.exchangeFor(`0x${'cd'.repeat(32)}`);
+    expect(ex.config_.transport.isTestnet).toBe(true);
   });
 
   it('fails clearly when the testnet executor has no agent key', () => {

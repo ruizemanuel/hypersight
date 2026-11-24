@@ -132,18 +132,27 @@ describe('usage', () => {
 });
 
 describe('devices and paper ledger', () => {
-  it('stores devices by token', () => {
+  it('stores paired devices by token hash and finds the latest one', () => {
     const { devices } = createRepos(openDb(':memory:'));
     const d = {
-      token: 't1',
+      tokenHash: 'h1',
       master: '0xabc',
       agentAddress: '0xdef',
       agentKeySealed: 'sealed',
       createdAt: 1,
     };
     devices.put(d);
-    expect(devices.byToken('t1')).toEqual(d);
+    devices.put({ ...d, tokenHash: 'h2', agentAddress: '0x123', createdAt: 5 });
+    expect(devices.byToken('h1')).toEqual(d);
     expect(devices.byToken('nope')).toBeUndefined();
+    expect(devices.has('h2')).toBe(true);
+    expect(devices.has('nope')).toBe(false);
+    expect(devices.latest()?.agentAddress).toBe('0x123');
+    expect(devices.all().map((x) => x.tokenHash)).toEqual(['h1', 'h2']);
+  });
+
+  it('has no latest device before the first pairing', () => {
+    expect(createRepos(openDb(':memory:')).devices.latest()).toBeUndefined();
   });
 
   it('appends and lists paper fills in order', () => {

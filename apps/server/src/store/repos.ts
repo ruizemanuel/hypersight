@@ -23,8 +23,9 @@ export type AuditEntry = {
   data: unknown;
 };
 
+/** A paired pair of glasses. The bearer token itself is never stored, only its SHA-256 hex. */
 export type DeviceRecord = {
-  token: string;
+  tokenHash: string;
   master: string;
   agentAddress: string;
   agentKeySealed: string;
@@ -150,6 +151,21 @@ export function createRepos(db: DatabaseSync) {
     },
   };
 
+  type DeviceRow = {
+    token: string;
+    master: string;
+    agent_address: string;
+    agent_key_sealed: string;
+    created_at: number;
+  };
+  const deviceOf = (r: DeviceRow): DeviceRecord => ({
+    tokenHash: r.token,
+    master: r.master,
+    agentAddress: r.agent_address,
+    agentKeySealed: r.agent_key_sealed,
+    createdAt: r.created_at,
+  });
+  const DEVICE_COLS = 'token, master, agent_address, agent_key_sealed, created_at';
   const devices = {
     put(d: DeviceRecord): void {
       db.prepare(
@@ -157,31 +173,29 @@ export function createRepos(db: DatabaseSync) {
          VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(token) DO UPDATE SET master = excluded.master,
            agent_address = excluded.agent_address, agent_key_sealed = excluded.agent_key_sealed`,
-      ).run(d.token, d.master, d.agentAddress, d.agentKeySealed, d.createdAt);
+      ).run(d.tokenHash, d.master, d.agentAddress, d.agentKeySealed, d.createdAt);
     },
-    byToken(token: string): DeviceRecord | undefined {
-      const r = db
-        .prepare(
-          'SELECT token, master, agent_address, agent_key_sealed, created_at FROM devices WHERE token = ?',
-        )
-        .get(token) as
-        | {
-            token: string;
-            master: string;
-            agent_address: string;
-            agent_key_sealed: string;
-            created_at: number;
-          }
+    byToken(tokenHash: string): DeviceRecord | undefined {
+      const r = db.prepare(`SELECT ${DEVICE_COLS} FROM devices WHERE token = ?`).get(tokenHash) as
+        | DeviceRow
         | undefined;
-      return r
-        ? {
-            token: r.token,
-            master: r.master,
-            agentAddress: r.agent_address,
-            agentKeySealed: r.agent_key_sealed,
-            createdAt: r.created_at,
-          }
-        : undefined;
+      return r ? deviceOf(r) : undefined;
+    },
+    has(tokenHash: string): boolean {
+      return db.prepare('SELECT 1 FROM devices WHERE token = ?').get(tokenHash) !== undefined;
+    },
+    /** The most recently paired device: its agent is the one trading. */
+    latest(): DeviceRecord | undefined {
+      const r = db
+        .prepare(`SELECT ${DEVICE_COLS} FROM devices ORDER BY created_at DESC, rowid DESC LIMIT 1`)
+        .get() as DeviceRow | undefined;
+      return r ? deviceOf(r) : undefined;
+    },
+    all(): DeviceRecord[] {
+      const rows = db
+        .prepare(`SELECT ${DEVICE_COLS} FROM devices ORDER BY created_at, rowid`)
+        .all() as DeviceRow[];
+      return rows.map(deviceOf);
     },
   };
 

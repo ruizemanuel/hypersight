@@ -10,8 +10,9 @@ import { createCompanionApi, httpBaseFromWs } from './companion/api';
 import { mountCompanion } from './companion/app';
 import './companion/styles.css';
 import { createInputNormalizer } from './input/normalize';
+import { linkUrlFor, pairDevice, serverPairs } from './net/pairing';
 import { HudSocket } from './net/socket';
-import { loadToken, saveToken, type TokenStorage } from './net/token';
+import { loadToken, saveToken, TOKEN_KEY, type TokenStorage } from './net/token';
 import {
   createDeckCache,
   type Effect,
@@ -65,6 +66,7 @@ const PHONE_STATUS: Record<HudState['status'], string> = {
   replaced: 'HyperSight was opened on another device.',
   unauthorized: 'The server refused the token. Paste the current one below.',
   setup: 'Setup needed: paste the server token (SESSION_TOKEN) below.',
+  pairing: 'Pairing: open the link page on a computer and type the code shown on the glasses.',
 };
 
 async function boot(): Promise<void> {
@@ -190,11 +192,33 @@ async function boot(): Promise<void> {
   const cached = await deckCache.load().catch(() => null);
   if (cached) dispatch({ type: 'deck', cards: cached, cached: true });
 
-  const devToken = (import.meta.env.VITE_SESSION_TOKEN as string | undefined) ?? '';
+  const httpBase = httpBaseFromWs(serverWsUrl());
+  const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+  // Wrapped: a WebView refuses `fetch` called as a method of another object.
+  const http: typeof fetch = (input, init) => fetch(input, init);
+  const pairing = await serverPairs(httpBase, http, sleep);
+  // A pairing server gives every pair of glasses its own token: the dev token is not used.
+  const devToken = pairing
+    ? ''
+    : ((import.meta.env.VITE_SESSION_TOKEN as string | undefined) ?? '');
   // One retry: a single slow BLE hop must not send the user to the setup screen.
-  const token = await loadToken(devToken, storage)
+  let token = await loadToken(devToken, storage)
     .catch(() => loadToken(devToken, storage))
     .catch(() => null);
+  if (!token && pairing) {
+    phoneStatus(PHONE_STATUS.pairing);
+    const deviceToken = await pairDevice({
+      base: httpBase,
+      fetch: http,
+      sleep,
+      onCode: (code) => dispatch({ type: 'pairing', code, url: linkUrlFor(httpBase) }),
+    });
+    if (!(await saveToken(deviceToken, storage).catch(() => false))) {
+      console.warn('[pairing] could not store the device token; pairing again next start');
+    }
+    token = deviceToken;
+    dispatch({ type: 'status', status: 'connecting' });
+  }
   if (!token) {
     showTokenForm(storage);
     dispatch({ type: 'status', status: 'setup' });
@@ -205,12 +229,19 @@ async function boot(): Promise<void> {
   // Phone-side setup screen (status, watchlist, presets, limits, alerts, history).
   const appEl = document.getElementById('app');
   if (appEl) {
-    mountCompanion(appEl, createCompanionApi(httpBaseFromWs(serverWsUrl()), token));
+    mountCompanion(appEl, createCompanionApi(httpBase, token));
     phoneStatus(PHONE_STATUS[state.status]);
   }
   socket.onStatus((s) => {
     if (s === 'open') return; // the session is live once `welcome` arrives
-    if (s === 'unauthorized') showTokenForm(storage);
+    if (s === 'unauthorized') {
+      // A pairing server forgot this device (its database was reset): pair again.
+      if (pairing) {
+        void storage.set(TOKEN_KEY, '').finally(() => location.reload());
+        return;
+      }
+      showTokenForm(storage);
+    }
     dispatch({ type: 'status', status: s });
   });
   socket.onMessage((m) => {

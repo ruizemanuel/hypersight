@@ -320,7 +320,7 @@ describe.runIf(process.env.RUN_LIVE_HL === '1')('TestnetExecutor (live, testnet)
     const executor = new TestnetExecutor({
       exchange,
       info: info as unknown as InfoLike,
-      master: cfg.accountAddress,
+      master: cfg.accountAddress ?? '',
       usdcToken: await loadUsdcToken(info as unknown as InfoLike),
       perpMeta: parsePerpMeta(await info.meta()),
       now: Date.now,

@@ -1,0 +1,19 @@
+{
+  "name": "@hypersight/link",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nktkas/hyperliquid": "0.33.3",
+    "viem": "2.58.4"
+  },
+  "devDependencies": {
+    "vite": "8.3.8"
+  }
+}
