@@ -134,9 +134,9 @@ function main(): void {
 
   // Filled from `meta` once market data is up (shared by reference with proposals and executor).
   const perpMeta: PerpMeta[] = [];
-  const pinned = cfg.accountAddress?.toLowerCase();
+  const pinned = cfg.accountAddress.toLowerCase();
   const accountOf = (d: DeviceRecord): Account | null => {
-    if (pinned && d.master !== pinned) {
+    if (d.master !== pinned) {
       log('[pairing] the paired device belongs to another account than HL_ACCOUNT_ADDRESS');
       return null;
     }
@@ -281,7 +281,8 @@ function main(): void {
               codes: new PairingCodes(cfg.encryptionKey),
               devices: repos.devices,
               userRole: (agent) => hl.info.userRole({ user: agent as Addr }),
-              ...(pinned ? { pinnedMaster: pinned } : {}),
+              pinnedMaster: pinned,
+              ...(cfg.clientIpHeader ? { clientIpHeader: cfg.clientIpHeader } : {}),
               onPaired,
               log,
             }),

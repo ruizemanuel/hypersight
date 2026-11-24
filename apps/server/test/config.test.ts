@@ -69,10 +69,19 @@ describe('loadConfig', () => {
     expect(cfg.agentPrivateKey).toBeUndefined();
     // The account address then only pins which master may pair.
     expect(cfg.accountAddress).toBe(valid.HL_ACCOUNT_ADDRESS);
-    const { HL_AGENT_PRIVATE_KEY: _k, HL_ACCOUNT_ADDRESS: _a, ...bare } = valid;
-    const open = loadConfig({ ...bare, PAIRING: '1' });
-    expect(open.accountAddress).toBeUndefined();
     expect(loadConfig(valid).pairing).toBe(false);
+  });
+
+  it('refuses to pair without a pinned account (the first visitor would claim the server)', () => {
+    const { HL_AGENT_PRIVATE_KEY: _k, HL_ACCOUNT_ADDRESS: _a, ...bare } = valid;
+    expect(() => loadConfig({ ...bare, PAIRING: '1' })).toThrow(/HL_ACCOUNT_ADDRESS/);
+  });
+
+  it('reads the client address from a proxy header only when told which one', () => {
+    expect(loadConfig(valid).clientIpHeader).toBeUndefined();
+    expect(loadConfig({ ...valid, CLIENT_IP_HEADER: 'Fly-Client-IP' }).clientIpHeader).toBe(
+      'fly-client-ip',
+    );
   });
 
   it('transcribes English by default and lets the provider detect the language with VOICE_LANG=multi', () => {

@@ -81,6 +81,27 @@ describe('link API — start and info', () => {
     for (let i = 0; i < 5; i++) expect((await s.post('/start')).status).toBe(200);
     expect((await s.post('/start')).status).toBe(429);
   });
+
+  it('tells clients apart by the proxy header behind a proxy, and ignores it otherwise', async () => {
+    const from = (ip: string) => ({ method: 'POST', headers: { 'Fly-Client-IP': ip } });
+    const proxied = setup({ clientIpHeader: 'fly-client-ip' });
+    for (let i = 0; i < 5; i++)
+      expect((await proxied.api.request('/start', from('1.1.1.1'))).status).toBe(200);
+    expect((await proxied.api.request('/start', from('1.1.1.1'))).status).toBe(429);
+    expect((await proxied.api.request('/start', from('2.2.2.2'))).status).toBe(200);
+    // Without a proxy the header is the client's own claim: it cannot buy more attempts.
+    const direct = setup();
+    for (let i = 0; i < 5; i++)
+      expect((await direct.api.request('/start', from(`9.9.9.${i}`))).status).toBe(200);
+    expect((await direct.api.request('/start', from('9.9.9.9'))).status).toBe(429);
+  });
+
+  it('limits status polls to 60 a minute per client (the glasses poll 30)', async () => {
+    const s = setup();
+    const { code } = await s.start();
+    for (let i = 0; i < 60; i++) expect((await s.api.request(`/status/${code}`)).status).toBe(200);
+    expect((await s.api.request(`/status/${code}`)).status).toBe(429);
+  });
 });
 
 describe('link API — complete', () => {
@@ -140,6 +161,35 @@ describe('link API — complete', () => {
     s.setRole(() => ({ role: 'agent', data: { user: OTHER } }));
     const second = await s.start();
     expect((await s.post('/complete', { code: second.code, master: OTHER })).status).toBe(403);
+  });
+
+  it('keeps one account when two accounts complete at the same time', async () => {
+    let release = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const owners = new Map<string, string>();
+    const s = setup({
+      userRole: async (agent) => {
+        await gate;
+        return { role: 'agent', data: { user: owners.get(agent) ?? '' } };
+      },
+    });
+    const a = await s.start();
+    const b = await s.start();
+    const agentOf = async (code: string) =>
+      ((await (await s.api.request(`/info/${code}`)).json()) as { agentAddress: string })
+        .agentAddress;
+    owners.set(await agentOf(a.code), MASTER.toLowerCase());
+    owners.set(await agentOf(b.code), OTHER.toLowerCase());
+    const both = Promise.all([
+      s.post('/complete', { code: a.code, master: MASTER }),
+      s.post('/complete', { code: b.code, master: OTHER }),
+    ]);
+    release();
+    const statuses = (await both).map((r) => r.status).sort();
+    expect(statuses).toEqual([200, 403]);
+    expect(new Set(s.repos.devices.all().map((d) => d.master)).size).toBe(1);
   });
 
   it('only lets the configured master pair when one is pinned', async () => {

@@ -20,6 +20,7 @@ const base: Config = {
   dbPath: ':memory:',
   intentModel: 'claude-opus-5-5',
   tonAddress: undefined,
+  clientIpHeader: undefined,
 };
 
 describe('createHlClients', () => {

@@ -10,9 +10,9 @@ export type Config = {
   hlWsUrl: string;
   /**
    * Master account: every Hyperliquid query uses this address, never the agent's. In pairing mode
-   * it is optional and only pins which master may pair.
+   * it pins the only master that may pair (a public server would otherwise go to its first visitor).
    */
-  accountAddress: string | undefined;
+  accountAddress: string;
   /** Agent (API wallet) key; only present when the executor is `testnet` (never when pairing). */
   agentPrivateKey: string | undefined;
   /** PAIRING=1: the master and a trade-only agent come from device-code pairing (/link). */
@@ -31,6 +31,8 @@ export type Config = {
   dbPath: string;
   intentModel: string;
   tonAddress: string | undefined;
+  /** Lower-cased header a trusted proxy sets to the client address (Fly-Client-IP on Fly.io). */
+  clientIpHeader: string | undefined;
 };
 
 const TESTNET_API = 'https://api.hyperliquid-testnet.xyz';
@@ -85,21 +87,21 @@ export function loadConfig(env: Env): Config {
   const pairing = get('PAIRING') === '1';
   const agentRaw =
     executor === 'testnet' && !pairing ? required('HL_AGENT_PRIVATE_KEY') : undefined;
-  const accountRaw = pairing ? get('HL_ACCOUNT_ADDRESS') : required('HL_ACCOUNT_ADDRESS');
+  if (pairing && get('HL_ACCOUNT_ADDRESS') === undefined) {
+    throw new ConfigError('PAIRING=1 needs HL_ACCOUNT_ADDRESS: the only account allowed to pair');
+  }
+  const accountRaw = required('HL_ACCOUNT_ADDRESS');
 
   return {
     port,
     hlApiUrl: testnetUrl('HL_API_URL', get('HL_API_URL') ?? TESTNET_API, ['https:']),
     hlWsUrl: testnetUrl('HL_WS_URL', get('HL_WS_URL') ?? TESTNET_WS, ['wss:']),
-    accountAddress:
-      accountRaw === undefined
-        ? undefined
-        : matching(
-            'HL_ACCOUNT_ADDRESS',
-            accountRaw,
-            ADDRESS_RE,
-            'a 0x-prefixed 20-byte hex address',
-          ),
+    accountAddress: matching(
+      'HL_ACCOUNT_ADDRESS',
+      accountRaw,
+      ADDRESS_RE,
+      'a 0x-prefixed 20-byte hex address',
+    ),
     pairing,
     voiceLang,
     fixtures,
@@ -130,6 +132,7 @@ export function loadConfig(env: Env): Config {
     dbPath: get('DB_PATH') ?? './data/hypersight.sqlite',
     intentModel: get('INTENT_MODEL') ?? 'claude-opus-5-5',
     tonAddress: get('TON_ADDRESS'),
+    clientIpHeader: get('CLIENT_IP_HEADER')?.toLowerCase(),
   };
 }
 

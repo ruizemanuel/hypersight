@@ -61,7 +61,7 @@ Voice also understands Spanish (*"cerrá la mitad de mi eth"*, *"¿cuánto gano?
 
 Requires Node 24, pnpm 12 and, for the glasses preview, `evenhub-simulator`.
 
-1. `cp .env.example .env` and fill it in: either `HL_ACCOUNT_ADDRESS` + `HL_AGENT_PRIVATE_KEY` (an approved testnet API wallet), or `PAIRING=1`; plus `ENCRYPTION_KEY` (`openssl rand -hex 32`) and `SESSION_TOKEN`. `ANTHROPIC_API_KEY` and `ELEVENLABS_API_KEY` are optional (without them: grammar only, tap only).
+1. `cp .env.example .env` and fill it in: `HL_ACCOUNT_ADDRESS` plus either `HL_AGENT_PRIVATE_KEY` (an approved testnet API wallet) or `PAIRING=1` (the address then pins the only account allowed to pair); plus `ENCRYPTION_KEY` (`openssl rand -hex 32`) and `SESSION_TOKEN`. `ANTHROPIC_API_KEY` and `ELEVENLABS_API_KEY` are optional (without them: grammar only, tap only).
 2. `pnpm install`
 3. `pnpm --filter @hypersight/link build && pnpm --filter @hypersight/server start`
 4. `pnpm --filter @hypersight/hud dev`
