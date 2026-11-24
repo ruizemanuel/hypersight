@@ -19,6 +19,7 @@ import {
   step,
 } from './state/hud-state';
 import { VoiceController } from './voice/controller';
+import { toPcmBytes } from './voice/pcm';
 
 const LIVE_DEBOUNCE_MS = 120;
 
@@ -150,9 +151,9 @@ async function boot(): Promise<void> {
 
   bridge.onEvenHubEvent((event) => {
     // Audio first: PCM frames arrive many times a second and must never reach the input path.
-    const pcm = event.audioEvent?.audioPcm;
-    if (pcm) {
-      voice.onPcm(pcm);
+    if (event.audioEvent) {
+      const pcm = toPcmBytes(event.audioEvent.audioPcm);
+      if (pcm) voice.onPcm(pcm);
       return;
     }
     const input = normalizer.normalize(event, Date.now());
