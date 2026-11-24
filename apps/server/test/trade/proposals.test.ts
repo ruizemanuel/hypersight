@@ -124,6 +124,34 @@ describe('ProposalService.propose', () => {
     });
   });
 
+  it('never lets an outcome buy cost more than the amount said, even walking a thin book', async () => {
+    const s = setup(
+      {},
+      {
+        '#273210': {
+          bids: [],
+          asks: [
+            { px: 0.1, sz: 100 },
+            { px: 0.13, sz: 5000 },
+          ],
+        },
+      },
+    );
+    const p = await proposed(s, {
+      kind: 'buyOutcome',
+      marketKey: 'rb:BTC:1d',
+      sideIndex: 0,
+      usd: 250,
+    });
+    const o = order(p);
+    const worst = Number(o.sz) * Number(o.px);
+    expect(worst).toBeLessThanOrEqual(250);
+    expect(p.notionalUsd).toBeCloseTo(worst, 6);
+    expect(o).toMatchObject({ sz: '1923', px: '0.13' });
+    expect(p.view.lines[0]).toBe('1923 shares @ ~0.12844 = $246.99');
+    expect(p.view.lines[1]).toBe('pays $1,923 if YES · max $249.99');
+  });
+
   it('moves the shortfall perp → spot first in a standard account', async () => {
     const s = setup({ abstraction: 'default', spotUsdc: 10, perpWithdrawableUsd: 500 });
     const p = await proposed(s, {
@@ -153,7 +181,7 @@ describe('ProposalService.propose', () => {
     });
     expect(rich.plan.steps.map((st) => st.kind)).toEqual(['order']);
     expect(rich.view.title).toBe('BUY YES · BTC > 61,509 · daily');
-    expect(rich.view.lines).toEqual(['40 shares @ ~0.62 = $24.80', 'pays $40 if YES']);
+    expect(rich.view.lines).toEqual(['40 shares @ ~0.62 = $24.80', 'pays $40 if YES · max $25.00']);
     const poor = await setup({ spotUsdc: 10 }).service.propose({
       kind: 'buyOutcome',
       marketKey: 'rb:BTC:1d',

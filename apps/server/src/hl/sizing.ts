@@ -63,6 +63,56 @@ export function outcomeSlippagePrice(bestAsk: number, ticks: number): string {
   return roundOutcomePrice(Math.min(bestAsk + ticks * OUTCOME_TICK, OUTCOME_MAX_PX));
 }
 
+export type OutcomeBuySize = {
+  shares: number;
+  /** IOC limit price: the worst price any share can fill at. */
+  limit: number;
+  /** Expected cost walking the book as it is now. */
+  estimate: number;
+  /** shares × limit — never more than the amount the user said. */
+  worst: number;
+  /** True when the book (not the amount) capped the size. */
+  depthLimited: boolean;
+};
+
+/**
+ * Most shares the amount buys walking the asks, with a limit price chosen so the worst case
+ * (shares × limit) never exceeds the amount: money left over after the expected fill becomes
+ * slippage room, capped at `ticks` × 0.01 (or 10% of a cheap price) above the deepest level used.
+ */
+export function sizeOutcomeBuy(
+  asks: { px: number; sz: number }[],
+  usd: number,
+  ticks: number,
+): OutcomeBuySize | null {
+  const best = asks[0];
+  if (!best || !(usd > 0)) return null;
+  const maxPx = Math.min(best.px + ticks * OUTCOME_TICK, OUTCOME_MAX_PX);
+  let pick: { shares: number; limit: number; depthLimited: boolean } | null = null;
+  let depth = 0;
+  for (const level of asks) {
+    if (level.px > maxPx + EPS) break;
+    depth += level.sz;
+    const affordable = Math.floor(usd / level.px + EPS);
+    const shares = Math.min(affordable, Math.floor(depth + EPS));
+    if (shares <= 0 || (pick && shares <= pick.shares)) continue;
+    const slip = Math.min(ticks * OUTCOME_TICK, Math.max(OUTCOME_TICK, level.px * 0.1));
+    const room = Math.floor((usd / shares) * 100_000) / 100_000;
+    const limit = Number(roundOutcomePrice(Math.min(level.px + slip, room, maxPx)));
+    pick = { shares, limit: Math.max(limit, level.px), depthLimited: shares < affordable };
+  }
+  if (!pick) return null;
+  let left = pick.shares;
+  let estimate = 0;
+  for (const level of asks) {
+    const take = Math.min(left, level.sz);
+    estimate += take * level.px;
+    left -= take;
+    if (left <= 0) break;
+  }
+  return { ...pick, estimate, worst: pick.shares * pick.limit };
+}
+
 /** Sell limit: best bid − ticks × 0.01, floored above 0. */
 export function outcomeSellSlippagePrice(bestBid: number, ticks: number): string {
   return roundOutcomePrice(Math.max(bestBid - ticks * OUTCOME_TICK, OUTCOME_MIN_PX));

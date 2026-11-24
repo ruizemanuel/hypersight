@@ -9,10 +9,10 @@ import type { Catalogue, OutcomeMarket } from '../hl/outcomes';
 import {
   outcomeSellSlippagePrice,
   outcomeShares,
-  outcomeSlippagePrice,
   perpSlippagePrice,
   roundPerpPrice,
   roundPerpSize,
+  sizeOutcomeBuy,
 } from '../hl/sizing';
 import { describeIntent } from '../intent/describe';
 import type { Repos } from '../store/repos';
@@ -426,17 +426,15 @@ export class ProposalService {
     const best = book.asks[0];
     if (!best) return blocked('No sellers right now');
     const ticks = this.deps.repos.settings.get().risk.outcomeSlippageTicks;
-    const px = outcomeSlippagePrice(best.px, ticks);
-    let shares = outcomeShares(usdAmount, best.px);
-    if (shares === 0) return blocked('Minimum $1');
+    if (outcomeShares(usdAmount, best.px) === 0) return blocked('Minimum $1');
+    // The worst case (shares × limit) never exceeds the amount said, and risk checks that.
+    const size = sizeOutcomeBuy(book.asks, usdAmount, ticks);
+    if (!size || size.estimate < 1) return blocked('No sellers right now');
+    const { shares, worst } = size;
+    const px = String(size.limit);
     const extra: string[] = [];
-    const available = Math.floor(depthWithin(book.asks, Number(px), true));
-    if (available < shares) {
-      shares = available;
-      if (shares === 0 || shares * best.px < 1) return blocked('No sellers right now');
-      extra.push(`only ${shares} shares ≤ ${px}`);
-    }
-    const cost = shares * best.px;
+    if (size.depthLimited) extra.push(`only ${shares} shares ≤ ${px}`);
+    const cost = worst;
     const view = this.deps.stream.view();
     const steps: PlanStep[] = [];
     if (view.spotUsdc < cost) {
@@ -462,8 +460,8 @@ export class ProposalService {
       plan: { steps, requestedSz: shares },
       title: `BUY ${side} · ${market.short}`,
       lines: [
-        `${shares} shares @ ~${fmtPrice(best.px)} = ${fmtUsd(cost)}`,
-        `pays ${usd(shares)} if ${side}`,
+        `${shares} shares @ ~${fmtPrice(size.estimate / shares)} = ${fmtUsd(size.estimate)}`,
+        `pays ${usd(shares)} if ${side}${worst - size.estimate >= 0.005 ? ` · max ${fmtUsd(worst)}` : ''}`,
         ...extra,
       ],
       marketKey,
