@@ -400,12 +400,13 @@ describe('ProposalService.confirm', () => {
   it('refuses an expired proposal', async () => {
     const p = await proposed(s, { kind: 'closePerp', coin: 'ETH', fraction: 0.5 });
     s.clock.now = T0 + 16_000;
+    // Known nothing-executed outcomes are "none"; "error" means the outcome is unknown.
     expect(await s.service.confirm(p.id)).toEqual({
-      status: 'error',
+      status: 'none',
       message: 'Expired — nothing sent',
     });
     expect(await s.service.confirm('nope')).toEqual({
-      status: 'error',
+      status: 'none',
       message: 'Expired — nothing sent',
     });
     expect(s.executor.plans).toHaveLength(0);

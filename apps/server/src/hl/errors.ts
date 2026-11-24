@@ -1,3 +1,4 @@
+import { ApiRequestError } from '@nktkas/hyperliquid/api/exchange';
 import type { ExecResult } from '../trade/executor';
 
 /**
@@ -45,9 +46,13 @@ export function humanizeHlError(e: unknown): string {
   return `Hyperliquid error: ${msg.slice(0, UNKNOWN_MAX)}`;
 }
 
-/** The raw `/exchange` response carried by the SDK's ApiRequestError, if any. */
+/**
+ * The raw `/exchange` response carried by the SDK's ApiRequestError (the exchange answered and
+ * refused). An HttpRequestError (5xx, timeout) also has a `response`, but then the outcome is
+ * unknown, so it is not treated as a refusal.
+ */
 export function apiResponseOf(e: unknown): unknown {
-  return e instanceof Error && 'response' in e ? (e as { response: unknown }).response : undefined;
+  return e instanceof ApiRequestError ? e.response : undefined;
 }
 
 /** Per-order statuses inside a raw order/cancel response (`response.data.statuses`). */

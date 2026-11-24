@@ -97,8 +97,11 @@ export class SessionController {
     // A voice answer still being resolved must not land a confirm the user never saw.
     this.device(session).gen++;
     this.deps.voice?.cancel(session);
-    const kind = session.overlay()?.kind;
-    if (kind === 'listening' || kind === 'thinking') session.send({ t: 'overlay', overlay: null });
+    const o = session.overlay();
+    // An executing order stays visible: a reconnecting device must see it is still in flight.
+    if (o?.kind === 'listening' || (o?.kind === 'thinking' && !o.sending)) {
+      session.send({ t: 'overlay', overlay: null });
+    }
   }
 
   /** Shows an alert, or holds it until the confirm/voice step on screen is answered. */
@@ -220,7 +223,7 @@ export class SessionController {
   private async onConfirm(session: Session, proposalId: string): Promise<void> {
     const dev = this.device(session);
     dev.gen++;
-    this.show(session, { kind: 'thinking' });
+    this.show(session, { kind: 'thinking', sending: true });
     const t0 = this.now();
     let result: ExecResult;
     try {
@@ -238,7 +241,24 @@ export class SessionController {
       await this.propose(session, p.intent, { note: 'Price moved — check the new price' });
       return;
     }
-    this.result(session, okStatus(result), result.message, p ? [p.view.title] : []);
+    const lines = p ? [p.view.title] : [];
+    if (result.status === 'error') {
+      // Outcome unknown (timeout, network): never "not executed", never "try again".
+      this.show(session, {
+        kind: 'result',
+        ok: false,
+        unknown: true,
+        title: result.message,
+        lines,
+      });
+    } else {
+      this.result(session, okStatus(result), result.message, lines);
+    }
+    // Positions changed (or might have): re-read the account and push the deck.
+    void this.deps
+      .refresh()
+      .catch((err) => this.deps.log?.('[controller] refresh after order failed', err))
+      .finally(() => this.deps.publish());
   }
 
   private async handle(

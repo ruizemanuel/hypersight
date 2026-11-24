@@ -165,6 +165,33 @@ describe('hudReducer overlays and link status', () => {
     expect(state.index).toBe(0);
   });
 
+  it('switches to "sending" on the confirm tap and ignores taps until the result', () => {
+    const shown = run([{ type: 'overlay', overlay: confirm, at: 0 }]).state;
+    const tapped = step(shown, { type: 'tap' });
+    expect(tapped.effects).toEqual([{ type: 'send', msg: { t: 'confirm', proposalId: 'p1' } }]);
+    expect(tapped.state.overlay).toEqual({ kind: 'thinking', sending: true });
+    expect(step(tapped.state, { type: 'tap' }).effects).toEqual([]);
+    expect(step(tapped.state, { type: 'doubleTap' }).effects).toEqual([]);
+    expect(step(tapped.state, { type: 'doubleTap' }).state.overlay).toEqual({
+      kind: 'thinking',
+      sending: true,
+    });
+  });
+
+  it('lets an order be slow, then says to check positions (never "try again")', () => {
+    const sending = run([
+      { type: 'overlay', overlay: { kind: 'thinking', sending: true }, at: 0 },
+    ]).state;
+    expect(step(sending, { type: 'tick', now: 30_000 }).state.overlay).toEqual({
+      kind: 'thinking',
+      sending: true,
+    });
+    expect(step(sending, { type: 'tick', now: 61_000 }).state.overlay).toEqual({
+      kind: 'error',
+      message: 'No answer — check your positions',
+    });
+  });
+
   it('dismisses a result on tap', () => {
     const r = run([
       { type: 'overlay', overlay: { kind: 'result', ok: true, title: 'FILLED', lines: [] }, at: 0 },

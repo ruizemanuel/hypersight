@@ -187,13 +187,13 @@ export class TestnetExecutor implements Executor {
     }
   }
 
-  /** Runs a setup call; returns an error result if it failed (the plan must stop). */
+  /** Runs a setup call; on failure the plan stops before any order, so nothing executed. */
   private async attempt(call: () => Promise<unknown>): Promise<ExecResult | null> {
     try {
       await call();
       return null;
     } catch (e) {
-      return { status: 'error', message: humanizeHlError(e) };
+      return { status: 'none', message: humanizeHlError(e) };
     }
   }
 }

@@ -55,11 +55,17 @@ export const OverlaySchema = z.discriminatedUnion('kind', [
     /** How listening started (HUD-side): hold → release sends; menu → tap sends. */
     source: z.enum(['hold', 'menu']).optional(),
   }),
-  z.object({ kind: z.literal('thinking') }),
+  z.object({
+    kind: z.literal('thinking'),
+    /** An order is executing: no timeout to "try again", taps ignored, kept across reconnects. */
+    sending: z.literal(true).optional(),
+  }),
   z.object({ kind: z.literal('confirm'), proposal: ProposalViewSchema }),
   z.object({
     kind: z.literal('result'),
     ok: z.boolean(),
+    /** The order outcome is unknown (timeout, network): the user must check positions. */
+    unknown: z.literal(true).optional(),
     title: z.string(),
     lines: z.array(z.string()).max(3),
   }),

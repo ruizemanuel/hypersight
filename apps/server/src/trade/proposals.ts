@@ -162,7 +162,7 @@ export class ProposalService {
     const inFlight = this.pending.get(id);
     if (inFlight) return inFlight;
     const p = this.proposals.get(id);
-    if (!p) return Promise.resolve({ status: 'error', message: 'Expired — nothing sent' });
+    if (!p) return Promise.resolve({ status: 'none', message: 'Expired — nothing sent' });
     if (p.result) return Promise.resolve(p.result);
     if (p.state === 'cancelled')
       return Promise.resolve({ status: 'none', message: 'Cancelled — nothing sent' });
@@ -175,7 +175,7 @@ export class ProposalService {
     const now = this.deps.now();
     if (p.state === 'expired' || now > p.expiresAt) {
       p.state = 'expired';
-      return { status: 'error', message: 'Expired — nothing sent' };
+      return { status: 'none', message: 'Expired — nothing sent' };
     }
     if (p.outcomeId !== undefined) {
       const market = this.deps.catalogue.byOutcome(p.outcomeId);

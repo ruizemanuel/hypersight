@@ -169,6 +169,20 @@ describe('layoutOverlay', () => {
     ]);
   });
 
+  it('marks an unknown order outcome CHECK POSITIONS and shows the sending state', () => {
+    const hdr = (o: Overlay) => layoutOverlay(o, NOW).texts.find((t) => t.name === 'hdr')?.text;
+    expect(
+      hdr({ kind: 'result', ok: false, unknown: true, title: 'Hyperliquid error: 504', lines: [] }),
+    ).toContain('CHECK POSITIONS');
+    expect(hdr({ kind: 'result', ok: false, title: 'No liquidity', lines: [] })).toContain(
+      'NOT EXECUTED',
+    );
+    const val = layoutOverlay({ kind: 'thinking', sending: true }, NOW).texts.find(
+      (t) => t.name === 'val',
+    )?.text;
+    expect(val).toBe('Sending order…');
+  });
+
   it('offers no confirm on a blocked proposal', () => {
     const page = layoutOverlay(overlays[4] as Overlay, NOW, { badge: 'TESTNET', shownAt: NOW });
     const text = Object.fromEntries(page.texts.map((t) => [t.name, t.text]));

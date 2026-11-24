@@ -151,7 +151,14 @@ export function layoutOverlay(
       });
     }
     case 'thinking':
-      return skeleton({ hdr: hdr('THINKING'), val: 'Thinking…', body: '', ftr: 'One moment' });
+      return o.sending
+        ? skeleton({
+            hdr: hdr('SENDING'),
+            val: 'Sending order…',
+            body: 'Checking with Hyperliquid',
+            ftr: 'Please wait',
+          })
+        : skeleton({ hdr: hdr('THINKING'), val: 'Thinking…', body: '', ftr: 'One moment' });
     case 'confirm': {
       const p = o.proposal;
       if (p.blocked) {
@@ -172,7 +179,7 @@ export function layoutOverlay(
     }
     case 'result':
       return skeleton({
-        hdr: hdr(o.ok ? 'DONE' : 'NOT EXECUTED'),
+        hdr: hdr(o.unknown ? 'CHECK POSITIONS' : o.ok ? 'DONE' : 'NOT EXECUTED'),
         val: o.title,
         body: bodyLines(o.lines),
         ftr: 'TAP dismiss',

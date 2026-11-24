@@ -108,7 +108,7 @@ describe('TestnetExecutor', () => {
       requestedSz: 0.004,
     });
     expect(calls).toEqual(['updateLeverage']);
-    expect(r.status).toBe('error');
+    expect(r.status).toBe('none');
   });
 
   it('moves USDC to spot before an outcome buy, from the master account', async () => {
@@ -144,7 +144,7 @@ describe('TestnetExecutor', () => {
       requestedSz: 0.004,
     });
     expect(calls).toEqual(['agentSendAsset']);
-    expect(r.status).toBe('error');
+    expect(r.status).toBe('none');
   });
 
   it('sends orders in the wire format with a 10 s expiry', async () => {
@@ -217,6 +217,33 @@ describe('TestnetExecutor', () => {
     });
     const r = await executor.execute({ steps: [ethOrder], requestedSz: 0.004 });
     expect(r).toMatchObject({ status: 'none', message: 'Whole shares only' });
+  });
+
+  it('treats an HTTP failure (e.g. a 504) as an unknown outcome, never as nothing executed', async () => {
+    const { executor } = harness({
+      order: () => {
+        // The SDK's HttpRequestError also carries a `response` (the fetch Response).
+        throw Object.assign(new Error('504 Gateway Timeout - upstream timeout'), {
+          name: 'HttpRequestError',
+          response: new Response('upstream timeout', { status: 504 }),
+        });
+      },
+    });
+    const r = await executor.execute({ steps: [ethOrder], requestedSz: 0.004 });
+    expect(r.status).toBe('error');
+  });
+
+  it('reports a failed setup step as nothing executed (no order was sent)', async () => {
+    const { executor } = harness({
+      updateLeverage: () => {
+        throw new Error('network down');
+      },
+    });
+    const r = await executor.execute({
+      steps: [{ kind: 'leverage', asset: 4, leverage: 2, isCross: true }, ethOrder],
+      requestedSz: 0.004,
+    });
+    expect(r.status).toBe('none');
   });
 
   it('reports a whole-request rejection as nothing executed', async () => {

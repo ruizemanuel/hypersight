@@ -43,6 +43,8 @@ export type HudEvent =
 
 /** A Thinking overlay (local or from the server) older than this becomes "No answer". */
 export const THINKING_MAX_MS = 15_000;
+/** An executing order may take this long before the HUD asks the user to check positions. */
+export const SENDING_MAX_MS = 60_000;
 /** Results clear themselves (and the server snapshot) after this long. */
 export const RESULT_MS = 4_000;
 
@@ -112,6 +114,15 @@ export function step(s: HudState, ev: HudEvent): Result {
     case 'tick':
       if (s.overlay?.kind === 'result' && ev.now - s.overlayAt > RESULT_MS) {
         return done({ ...s, overlay: null }, { type: 'send', msg: { t: 'dismiss' } });
+      }
+      if (s.overlay?.kind === 'thinking' && s.overlay.sending) {
+        return ev.now - s.overlayAt > SENDING_MAX_MS
+          ? done({
+              ...s,
+              overlay: { kind: 'error', message: 'No answer — check your positions' },
+              overlayAt: ev.now,
+            })
+          : done(s);
       }
       if (s.overlay?.kind === 'thinking' && ev.now - s.overlayAt > THINKING_MAX_MS) {
         return done({
@@ -189,7 +200,13 @@ function onOverlayInput(s: HudState, o: Overlay, ev: InputEvent): Result {
       if (ev.type === 'doubleTap' || (ev.type === 'tap' && o.proposal.blocked)) {
         return done(cleared, { type: 'send', msg: { t: 'cancel', proposalId } });
       }
-      if (ev.type === 'tap') return done(s, { type: 'send', msg: { t: 'confirm', proposalId } });
+      // The card is gone the moment it is confirmed: no second tap, no "cancel" while it executes.
+      if (ev.type === 'tap') {
+        return done(
+          { ...s, overlay: { kind: 'thinking', sending: true } },
+          { type: 'send', msg: { t: 'confirm', proposalId } },
+        );
+      }
       return done(s);
     }
     case 'result':
@@ -205,6 +222,11 @@ function onOverlayInput(s: HudState, o: Overlay, ev: InputEvent): Result {
         });
       }
       return ev.type === 'tap' || ev.type === 'doubleTap'
+        ? done(cleared, { type: 'send', msg: { t: 'dismiss' } })
+        : done(s);
+    case 'thinking':
+      if (o.sending) return done(s);
+      return ev.type === 'doubleTap'
         ? done(cleared, { type: 'send', msg: { t: 'dismiss' } })
         : done(s);
     default:

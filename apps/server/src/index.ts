@@ -27,7 +27,7 @@ import { VoiceRouter } from './voice/router';
 import { startGateway } from './ws/gateway';
 
 const MARKET_RETRY_MS = 5000;
-const NOT_READY: ExecResult = { status: 'error', message: 'Trading not ready yet — nothing sent' };
+const NOT_READY: ExecResult = { status: 'none', message: 'Trading not ready yet — nothing sent' };
 
 const usdText = (n: number) => `$${n.toLocaleString('en-US')}`;
 const dateText = (ms: number) =>

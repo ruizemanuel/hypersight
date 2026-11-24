@@ -153,7 +153,7 @@ describe('SessionController — voice to confirm to execute', () => {
     s.sent.length = 0;
     await s.controller.onClientMsg(s.session, { t: 'confirm', proposalId: proposal.id });
     const [busy, result] = s.overlays();
-    expect(busy).toEqual({ kind: 'thinking' });
+    expect(busy).toEqual({ kind: 'thinking', sending: true });
     expect(result).toMatchObject({ kind: 'result', ok: true });
     expect(s.executor.plans).toHaveLength(1);
     expect(s.repos.audit.list().map((a) => a.kind)).toEqual(
@@ -256,6 +256,26 @@ describe('SessionController — voice to confirm to execute', () => {
     release({ intent: { kind: 'closePerp', coin: 'ETH', fraction: 1 }, source: 'llm', ms: 900 });
     await pending;
     expect(s.session.overlay()).toBeNull();
+  });
+
+  it('shows "sending" while executing, and an unknown outcome as CHECK POSITIONS', async () => {
+    const s = setup();
+    s.executor.execute = async () => ({ status: 'error', message: 'Hyperliquid error: 504' });
+    await s.controller.onTranscript(s.session, 'close half my eth', {});
+    const p = confirmOf(s.overlays().at(-1));
+    s.sent.length = 0;
+    await s.controller.onClientMsg(s.session, { t: 'confirm', proposalId: p.id });
+    const [sending, result] = s.overlays();
+    expect(sending).toEqual({ kind: 'thinking', sending: true });
+    expect(result).toMatchObject({ kind: 'result', ok: false, unknown: true });
+    expect(s.refresh).toHaveBeenCalled();
+  });
+
+  it('keeps the sending state for a device that drops mid-execution', async () => {
+    const s = setup();
+    s.session.send({ t: 'overlay', overlay: { kind: 'thinking', sending: true } });
+    s.controller.onDetach(s.session);
+    expect(s.session.overlay()).toEqual({ kind: 'thinking', sending: true });
   });
 
   it('re-proposes at the new price when the price moved before confirm', async () => {
