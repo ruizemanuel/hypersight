@@ -20,7 +20,7 @@ Built for the *Heads Up: Even Realities* hackathon (Track 02 · Crypto & DeFi), 
 2. **Watching the game.** You hold YES on a market. Say *"sell half my Hawks"* → the confirm card shows shares, price and proceeds → tap.
 3. **Macro event.** *"What are the odds on the Fed?"* → `Change 71% · No change 29%`. *"Buy twenty dollars of yes"* → confirm → tap.
 
-Voice also understands Spanish (*"cerrá la mitad de mi eth"*, *"¿cuánto gano?"*). Every action is also reachable by tap: voice is never required.
+With `VOICE_LANG=multi` voice also understands Spanish (*"cerrá la mitad de mi eth"*, *"¿cuánto gano?"*); the default transcribes English only. Every action is also reachable by tap: voice is never required.
 
 ## How it works
 
@@ -53,7 +53,7 @@ Voice also understands Spanish (*"cerrá la mitad de mi eth"*, *"¿cuánto gano?
 - **Pairing without secrets in config:** with `PAIRING=1` the glasses show a code; you open `/link` on a computer, connect your wallet and approve a fresh agent the server generated. The server checks on Hyperliquid that the agent belongs to your wallet before trading with it. Agent keys are sealed at rest (AES-256-GCM); device tokens are stored only as hashes.
 - **Testnet hard guard.** Any Hyperliquid URL off `hyperliquid-testnet.xyz` is refused at startup; mainnet is not configurable.
 - **Confirmation for every write,** with expiry and a price re-check at tap time.
-- **Risk limits** (editable on the phone): $250 per order, $2,000 per day, 5× leverage, allowed coins, 1% perp / 3-tick outcome slippage, one write per 2 s.
+- **Risk limits:** $250 per order, $2,000 per day, 5× leverage and the allowed coins are editable on the phone; 1% perp / 3-tick outcome slippage and one write per 2 s are fixed.
 - **Kill switch:** *Cancel orders* in the glasses menu.
 - **No advice:** suggestions come only from your own rules and always read *"your rule: …"*. Every proposal, confirm and result is in the audit log (History on the phone).
 
@@ -69,7 +69,7 @@ Requires Node 24, pnpm 12 and, for the glasses preview, `evenhub-simulator`.
 
 Checks: `pnpm lint && pnpm typecheck && pnpm test`. `pnpm e2e` runs the whole stack against captured market data with a fake executor and drives the simulator through deck → actions → confirm → result (no `.env` needed).
 
-Container: `docker build -t hypersight .` and run it with the same environment variables (SQLite lives on the `/data` volume); `fly.toml` is ready for Fly.io.
+Container: the `Dockerfile` builds the server bundle and the link page (SQLite lives on the `/data` volume, configured through the same environment variables); `fly.toml` deploys it to Fly.io.
 
 ## Repository layout
 
