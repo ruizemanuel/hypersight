@@ -1,7 +1,6 @@
 import type { Server } from 'node:http';
 import Anthropic from '@anthropic-ai/sdk';
 import { serve } from '@hono/node-server';
-import { DEFAULT_PRESETS } from '@hypersight/protocol';
 import { type Config, ConfigError, loadConfig } from './config';
 import { buildDeck } from './deck/build-deck';
 import { createDeckPublisher } from './deck/publisher';
@@ -15,13 +14,13 @@ import { describeIntent } from './intent/describe';
 import { type IntentContext, parseIntentFast } from './intent/grammar';
 import { resolveIntent } from './intent/resolve';
 import { SessionRegistry } from './session/registry';
+import { openDb } from './store/db';
+import { createRepos } from './store/repos';
 import { ElevenLabsStream } from './voice/elevenlabs';
 import { VoiceRouter } from './voice/router';
 import { startGateway } from './ws/gateway';
 
 const MARKET_RETRY_MS = 5000;
-/** Default watchlist until Task 14 persists it. */
-const DEFAULT_WATCH = ['rb:BTC:1d', 'rb:ETH:1d'];
 
 function log(msg: string, err?: unknown): void {
   const ts = new Date().toISOString();
@@ -47,13 +46,18 @@ function main(): void {
     log('[voice] ELEVENLABS_API_KEY not set: voice disabled, tap actions only');
   if (!cfg.anthropicKey) log('[intent] ANTHROPIC_API_KEY not set: fast grammar only');
 
+  const db = openDb(cfg.dbPath);
+  const repos = createRepos(db);
   const hl = createHlClients(cfg);
   const catalogue = new Catalogue();
   const badge = cfg.executor === 'paper' ? 'PAPER' : 'TESTNET';
   let stream: MarketStream | null = null;
 
   const watched = (): OutcomeMarket[] =>
-    DEFAULT_WATCH.map((k) => catalogue.byKey(k)).filter((m): m is OutcomeMarket => m !== undefined);
+    repos.watch
+      .list()
+      .map((k) => catalogue.byKey(k))
+      .filter((m): m is OutcomeMarket => m !== undefined);
 
   const publisher = createDeckPublisher({
     build: () => {
@@ -62,7 +66,7 @@ function main(): void {
         view: stream.view(),
         watch: watched(),
         mids: stream.mids(),
-        presets: DEFAULT_PRESETS,
+        presets: repos.settings.get().presets,
         badge,
         now: Date.now(),
       });
@@ -74,7 +78,7 @@ function main(): void {
   const anthropic = cfg.anthropicKey ? new Anthropic({ apiKey: cfg.anthropicKey }) : null;
   const intentContext = (): IntentContext =>
     stream
-      ? buildIntentContext(stream.view(), catalogue, DEFAULT_WATCH)
+      ? buildIntentContext(stream.view(), catalogue, repos.watch.list())
       : {
           perpCoins: ['BTC', 'ETH', 'SOL', 'HYPE'],
           positions: [],
@@ -174,6 +178,7 @@ function main(): void {
     log(`[server] ${signal} received, shutting down`);
     void Promise.allSettled([stream?.stop(), gateway.close()])
       .then(() => hl.close())
+      .then(() => db.close())
       .finally(() => server.close(() => process.exit(0)));
     setTimeout(() => process.exit(0), 3000).unref();
   };
