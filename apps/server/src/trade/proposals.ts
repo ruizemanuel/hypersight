@@ -222,12 +222,17 @@ export class ProposalService {
             ),
         };
       }
-      if (!p.reducesExposure && (result.status === 'filled' || result.status === 'partial')) {
-        const filled = (result.filledSz ?? 0) * (result.avgPx ?? 0);
-        this.deps.repos.usage.addNotional(filled > 0 ? filled : p.notionalUsd, this.deps.now());
-      }
+      // The order went out: record the result first so nothing below can make it confirmable again.
       p.result = result;
       p.state = 'done';
+      if (!p.reducesExposure && (result.status === 'filled' || result.status === 'partial')) {
+        const filled = (result.filledSz ?? 0) * (result.avgPx ?? 0);
+        try {
+          this.deps.repos.usage.addNotional(filled > 0 ? filled : p.notionalUsd, this.deps.now());
+        } catch {
+          // bookkeeping must never turn a placed order back into a pending one
+        }
+      }
       this.audit('result', p.id, result.message, result);
       return result;
     } catch (err) {
@@ -309,10 +314,12 @@ export class ProposalService {
     const px = perpSlippagePrice(best.px, isBuy, slip, meta.szDecimals);
     const lines: string[] = [];
     const available = depthWithin(isBuy ? book.asks : book.bids, Number(px), isBuy);
+    let shown = fraction;
     if (available < sz) {
       sz = Number(roundPerpSize(available, meta.szDecimals, 'down'));
       if (sz <= 0) return blocked(isBuy ? 'No sellers right now' : 'No buyers right now');
       lines.push(`only ${sz} ${coin} within ${px}`);
+      shown = sz / abs;
     }
     const szStr = roundPerpSize(sz, meta.szDecimals, 'down');
     const notional = sz * best.px;
@@ -330,7 +337,7 @@ export class ProposalService {
     return {
       intent: { kind: 'closePerp', coin, fraction },
       plan: { steps: [order], requestedSz: sz },
-      title: `CLOSE ${pct(fraction)} ${coin} ${pos.size > 0 ? 'LONG' : 'SHORT'}`,
+      title: `CLOSE ${pct(shown)} ${coin} ${pos.size > 0 ? 'LONG' : 'SHORT'}`,
       lines: [
         `${szStr} ${coin} ≈ ${fmtUsd(notional)} @ ~${fmtPrice(best.px)}`,
         `${fmtUsd(realized, { sign: true })} realized`,
@@ -571,7 +578,7 @@ export class ProposalService {
       title: `STOP ${coin} ${isLong ? 'LONG' : 'SHORT'} AT ${fmtPrice(triggerPx)}`,
       lines: [
         `${sz} ${coin} · mark ${fmtPrice(pos.markPx)}`,
-        `market sell if ${isLong ? '≤' : '≥'} ${fmtPrice(triggerPx)}`,
+        `market ${isLong ? 'sell' : 'buy'} if ${isLong ? '≤' : '≥'} ${fmtPrice(triggerPx)}`,
       ],
       refPx: 0,
       notionalUsd: Math.abs(pos.size) * pos.markPx,

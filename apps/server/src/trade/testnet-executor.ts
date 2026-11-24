@@ -93,11 +93,10 @@ export class TestnetExecutor implements Executor {
       const first = run[0] as PlanStep;
       if (first.kind === 'leverage') {
         const err = await this.attempt(() =>
-          this.deps.exchange.updateLeverage({
-            asset: first.asset,
-            isCross: first.isCross,
-            leverage: first.leverage,
-          }),
+          this.deps.exchange.updateLeverage(
+            { asset: first.asset, isCross: first.isCross, leverage: first.leverage },
+            { expiresAfter: this.deps.now() + EXPIRES_AFTER_MS },
+          ),
         );
         if (err) return err;
       } else if (first.kind === 'perpToSpot') {
@@ -142,7 +141,10 @@ export class TestnetExecutor implements Executor {
     if (cancels.length === 0) return { status: 'filled', message: 'No open orders' };
     try {
       // No `f` (fast) flag: it would refuse trigger orders, and `f:false` is rejected.
-      await this.deps.exchange.cancel({ cancels });
+      await this.deps.exchange.cancel(
+        { cancels },
+        { expiresAfter: this.deps.now() + EXPIRES_AFTER_MS },
+      );
       return { status: 'filled', message: `Cancelled ${cancels.length} orders` };
     } catch (e) {
       const statuses = statusesOf(apiResponseOf(e));

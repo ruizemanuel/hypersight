@@ -90,7 +90,11 @@ describe('TestnetExecutor', () => {
     };
     const r = await executor.execute(plan);
     expect(calls).toEqual(['updateLeverage', 'order']);
-    expect(exchange.updateLeverage).toHaveBeenCalledWith({ asset: 4, isCross: true, leverage: 2 });
+    // Every L1 action carries a 10 s expiry.
+    expect(exchange.updateLeverage).toHaveBeenCalledWith(
+      { asset: 4, isCross: true, leverage: 2 },
+      { expiresAfter: NOW + 10_000 },
+    );
     expect(r).toMatchObject({ status: 'filled', message: 'Filled 0.004 @ 3000' });
   });
 
@@ -263,12 +267,15 @@ describe('TestnetExecutor', () => {
     const { executor, exchange, info } = harness();
     const r = await executor.cancelAll();
     expect(info.frontendOpenOrders).toHaveBeenCalledWith({ user: MASTER });
-    expect(exchange.cancel).toHaveBeenCalledWith({
-      cancels: [
-        { a: 100271210, o: 11 },
-        { a: 3, o: 12 },
-      ],
-    });
+    expect(exchange.cancel).toHaveBeenCalledWith(
+      {
+        cancels: [
+          { a: 100271210, o: 11 },
+          { a: 3, o: 12 },
+        ],
+      },
+      { expiresAfter: NOW + 10_000 },
+    );
     expect(r).toMatchObject({ status: 'filled', message: 'Cancelled 2 orders' });
   });
 

@@ -306,6 +306,21 @@ describe('ProposalService.propose', () => {
     });
   });
 
+  it('says "market buy" on a stop for a short (the side is always explicit)', async () => {
+    const s = setup({ perps: [{ ...ethLong, size: -0.5 }] });
+    const p = await proposed(s, { kind: 'setStop', coin: 'ETH', triggerPx: 3600 });
+    expect(p.view.lines[1]).toBe('market buy if ≥ 3,600');
+    const long = await proposed(setup(), { kind: 'setStop', coin: 'ETH', triggerPx: 3200 });
+    expect(long.view.lines[1]).toBe('market sell if ≤ 3,200');
+  });
+
+  it('titles a close the book can only fill in part with the share actually closed', async () => {
+    const s = setup({}, { ETH: { bids: [{ px: 3411, sz: 0.2 }], asks: [{ px: 3412, sz: 10 }] } });
+    const p = await proposed(s, { kind: 'closePerp', coin: 'ETH', fraction: 1 });
+    expect(p.view.title).toBe('CLOSE 40% ETH LONG');
+    expect(order(p).sz).toBe('0.2');
+  });
+
   it('refuses non-trading intents', async () => {
     expect(await setup().service.propose({ kind: 'query', topic: 'pnl' })).toEqual({
       blocked: 'Not an order',
@@ -448,6 +463,17 @@ describe('ProposalService.confirm', () => {
       status: 'none',
       message: 'Too fast — wait a second',
     });
+  });
+
+  it('keeps the result when bookkeeping fails after the order (never re-confirmable)', async () => {
+    s.repos.usage.addNotional = () => {
+      throw new Error('disk full');
+    };
+    const p = await proposed(s, { kind: 'openPerp', coin: 'ETH', side: 'long', usd: 50 });
+    const first = await s.service.confirm(p.id);
+    expect(first.status).toBe('filled');
+    expect(await s.service.confirm(p.id)).toEqual(first);
+    expect(s.executor.plans).toHaveLength(1);
   });
 
   it('turns an executor failure into an error result', async () => {
