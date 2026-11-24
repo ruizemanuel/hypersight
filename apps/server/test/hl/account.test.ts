@@ -103,6 +103,7 @@ describe('buildAccountView', () => {
     expect(v.perpWithdrawableUsd).toBeCloseTo(2397.029985, 6);
     expect(v.perpUpnlUsd).toBeCloseTo(-29.120862 + 42.1, 6);
     expect(v.marginRatio).toBeCloseTo(453.858664 / 3343.540876, 6);
+    expect(v.marginUsage).toBeCloseTo(868.748499 / 3370.641206, 6);
     expect(v.abstraction).toBe('default');
     expect(v.updatedAt).toBe(1_795_470_000_000);
   });

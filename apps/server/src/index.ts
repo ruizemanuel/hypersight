@@ -155,6 +155,7 @@ function main(): void {
         catalogue,
         perpMeta: parsePerpMeta(meta),
         abstraction,
+        log,
       });
       s.on('view', () => publisher.publish());
       s.on('outcomeMeta', () => publisher.publish());

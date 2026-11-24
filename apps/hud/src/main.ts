@@ -5,6 +5,7 @@ import {
 } from '@evenrealities/even_hub_sdk';
 import { createPageRenderer } from './bridge/pages';
 import { createBridgeQueue } from './bridge/queue';
+import { queuedStorage } from './bridge/storage';
 import { createInputNormalizer } from './input/normalize';
 import { HudSocket } from './net/socket';
 import { loadToken, saveToken, type TokenStorage } from './net/token';
@@ -68,10 +69,8 @@ async function boot(): Promise<void> {
   const queue = createBridgeQueue();
   const normalizer = createInputNormalizer();
   const renderer = createPageRenderer(bridge, queue, () => normalizer.markTextUpdate(Date.now()));
-  const storage: TokenStorage = {
-    get: (k) => bridge.getLocalStorage(k),
-    set: (k, v) => bridge.setLocalStorage(k, v),
-  };
+  // Storage shares the bridge path with rendering: serialized, with the queue timeout.
+  const storage: TokenStorage = queuedStorage(bridge, queue);
   const deckCache = createDeckCache(storage);
 
   let state: HudState = initialHudState;
@@ -178,11 +177,14 @@ async function boot(): Promise<void> {
   }, 1000);
 
   render(); // creates the startup page ("Connecting…")
-  const cached = await deckCache.load();
-  if (cached) dispatch({ type: 'deck', cards: cached });
+  const cached = await deckCache.load().catch(() => null);
+  if (cached) dispatch({ type: 'deck', cards: cached, cached: true });
 
   const devToken = (import.meta.env.VITE_SESSION_TOKEN as string | undefined) ?? '';
-  const token = await loadToken(devToken, storage).catch(() => null);
+  // One retry: a single slow BLE hop must not send the user to the setup screen.
+  const token = await loadToken(devToken, storage)
+    .catch(() => loadToken(devToken, storage))
+    .catch(() => null);
   if (!token) {
     showTokenForm(storage);
     dispatch({ type: 'status', status: 'setup' });

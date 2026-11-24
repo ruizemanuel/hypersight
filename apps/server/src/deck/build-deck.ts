@@ -49,7 +49,7 @@ function accountCard(view: AccountView, badge: Badge): CardModel {
     value: fmtUsd(view.equityUsd),
     lines: [
       `Open PnL ${fmtUsd(openPnl, { sign: true })}`,
-      `Margin use ${fmtPct(view.marginRatio)}`,
+      `Margin used ${fmtPct(view.marginUsage)}`,
       `USDC ${fmtUsd(view.spotUsdc)} · ${positions} open`,
     ],
     hint: HINT_NO_ACTIONS,

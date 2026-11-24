@@ -203,6 +203,20 @@ describe('pageFor', () => {
     }).state;
     expect(pageFor(cached, 0).texts.find((t) => t.name === 'hdr')?.text).toContain('offline');
   });
+
+  it('keeps a cached deck marked offline after welcome until the server sends a fresh one', () => {
+    const hdr = (s: HudState) => pageFor(s, 0).texts.find((t) => t.name === 'hdr')?.text;
+    const cachedThenOpen = run(
+      [
+        { type: 'deck', cards: deck, cached: true },
+        { type: 'status', status: 'open' },
+      ],
+      { ...initialHudState, status: 'connecting' },
+    ).state;
+    expect(hdr(cachedThenOpen)).toContain('offline');
+    const fresh = hudReducer(cachedThenOpen, { type: 'deck', cards: deck });
+    expect(hdr(fresh)).toBe('ACCOUNT · TESTNET · 1/3');
+  });
 });
 
 describe('createDeckCache', () => {

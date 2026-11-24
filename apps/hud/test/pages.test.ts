@@ -100,6 +100,26 @@ describe('createPageRenderer', () => {
     expect(calls.map((c) => c.method)).toEqual(['rebuild']);
   });
 
+  it('rebuilds after an in-place upgrade fails, so stale text never stays on the glasses', async () => {
+    const { bridge, calls } = fakeBridge();
+    let failNext = false;
+    const upgrade = bridge.textContainerUpgrade;
+    bridge.textContainerUpgrade = async (arg) => {
+      if (failNext) {
+        failNext = false;
+        calls.push({ method: 'upgrade-failed', arg });
+        return false;
+      }
+      return upgrade(arg);
+    };
+    const r = createPageRenderer(bridge, createBridgeQueue(), () => {});
+    await r.render(page('+$1.00'));
+    failNext = true;
+    await r.render(page('+$2.00'));
+    await r.render(page('+$3.00'));
+    expect(calls.map((c) => c.method)).toEqual(['create', 'upgrade-failed', 'rebuild']);
+  });
+
   it('coalesces renders requested while one is in flight (latest wins)', async () => {
     const { bridge, calls } = fakeBridge();
     const r = createPageRenderer(bridge, createBridgeQueue(), () => {});

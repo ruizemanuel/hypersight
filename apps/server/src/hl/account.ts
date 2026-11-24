@@ -3,7 +3,7 @@ import type { Catalogue, OutcomeMarket } from './outcomes';
 
 /** Structural subset of `clearinghouseState` (perps). */
 export type ClearinghouseLike = {
-  marginSummary: { accountValue: string };
+  marginSummary: { accountValue: string; totalMarginUsed?: string };
   crossMarginSummary: { accountValue: string };
   crossMaintenanceMarginUsed: string;
   withdrawable: string;
@@ -55,8 +55,10 @@ export type OutcomePosition = {
 export type AccountView = {
   equityUsd: number;
   perpUpnlUsd: number;
-  /** Cross maintenance margin / account value; liquidation at ≥ 1. */
+  /** Cross maintenance margin / account value; liquidation at ≥ 1 (risk, for alerts). */
   marginRatio: number;
+  /** Margin committed to positions / account value (what the account card shows). */
+  marginUsage: number;
   perpWithdrawableUsd: number;
   spotUsdc: number;
   perps: PerpPosition[];
@@ -156,11 +158,15 @@ export function buildAccountView(input: AccountInput): AccountView {
   const maintenance = num(ch.crossMaintenanceMarginUsed);
   const base = unified ? spotUsdc + perpUpnlUsd : num(ch.crossMarginSummary.accountValue);
   const marginRatio = maintenance === 0 ? 0 : base > 0 ? maintenance / base : 1;
+  const used = num(ch.marginSummary.totalMarginUsed);
+  const usageBase = unified ? spotUsdc + perpUpnlUsd : num(ch.marginSummary.accountValue);
+  const marginUsage = used === 0 ? 0 : usageBase > 0 ? used / usageBase : 1;
 
   return {
     equityUsd,
     perpUpnlUsd,
     marginRatio,
+    marginUsage,
     perpWithdrawableUsd: num(ch.withdrawable),
     spotUsdc,
     perps,

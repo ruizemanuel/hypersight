@@ -7,6 +7,7 @@ import {
   type OutcomeMetaLike,
   type OutcomeSpecLike,
   type OutcomeTemplateLike,
+  parseOutcomeMetaEvent,
 } from '../../src/hl/outcomes';
 
 const templates: OutcomeTemplateLike[] = [
@@ -189,8 +190,9 @@ describe('buildCatalogue', () => {
 });
 
 describe('Catalogue', () => {
+  // A clock before every fixture expiry, so nothing here is hidden as expired.
   const make = () => {
-    const c = new Catalogue();
+    const c = new Catalogue({ now: () => Date.UTC(2026, 8, 1) });
     c.reset(meta, templates);
     return c;
   };
@@ -209,7 +211,7 @@ describe('Catalogue', () => {
     expect(c.byKey('o:24274')).toBeUndefined();
   });
 
-  it('follows a recurring rotation: the stable key points at the new outcome', () => {
+  it('follows a recurring rotation: the key stays on the live market, then moves on settlement', () => {
     const c = make();
     c.apply({
       outcomeCreated: {
@@ -219,8 +221,9 @@ describe('Catalogue', () => {
           'class:priceBinary|underlying:BTC|expiry:20261121-0300|targetPrice:62452|period:1d',
       },
     });
-    expect(c.byKey('rb:BTC:1d')?.outcome).toBe(27153);
-    expect(c.byOutcome(27121)).toBeDefined();
+    // the old daily is still trading until its expiry: the key keeps pointing at it
+    expect(c.byKey('rb:BTC:1d')?.outcome).toBe(27121);
+    expect(c.byOutcome(27153)).toBeDefined();
     c.apply({ outcomeSettled: 27121 });
     expect(c.byKey('rb:BTC:1d')).toMatchObject({
       outcome: 27153,
@@ -246,6 +249,70 @@ describe('Catalogue', () => {
 
   it('respects the search limit', () => {
     expect(make().search('btc', 1)).toHaveLength(1);
+  });
+});
+
+describe('parseOutcomeMetaEvent', () => {
+  it('accepts the SDK shape ({updates}, settled ids as objects)', () => {
+    expect(
+      parseOutcomeMetaEvent({
+        updates: [{ outcomeSettled: { outcome: 27121 } }, { questionSettled: { question: 820 } }],
+      }),
+    ).toEqual([{ outcomeSettled: 27121 }, { questionSettled: 820 }]);
+  });
+
+  it('accepts the documented shape (bare array, settled ids as numbers)', () => {
+    expect(parseOutcomeMetaEvent([{ outcomeSettled: 27121 }, { questionSettled: 820 }])).toEqual([
+      { outcomeSettled: 27121 },
+      { questionSettled: 820 },
+    ]);
+  });
+
+  it('passes created outcomes and updated questions through', () => {
+    const q = {
+      question: 820,
+      name: 'May CPI year-over-year',
+      description: '…',
+      fallbackOutcome: 10217,
+      namedOutcomes: [10218],
+      settledNamedOutcomes: [],
+    };
+    expect(
+      parseOutcomeMetaEvent({ updates: [{ outcomeCreated: btcDaily }, { questionUpdated: q }] }),
+    ).toEqual([{ outcomeCreated: btcDaily }, { questionUpdated: q }]);
+  });
+
+  it('drops anything malformed instead of throwing', () => {
+    expect(parseOutcomeMetaEvent(null)).toEqual([]);
+    expect(parseOutcomeMetaEvent({ updates: 'x' })).toEqual([]);
+    expect(parseOutcomeMetaEvent([{ outcomeSettled: 'abc' }, { somethingElse: 1 }, 7])).toEqual([]);
+  });
+});
+
+describe('Catalogue expiry', () => {
+  const at = (iso: string) => () => Date.parse(iso);
+  const nextDay: OutcomeSpecLike = {
+    ...btcDaily,
+    outcome: 27153,
+    description:
+      'class:priceBinary|underlying:BTC|expiry:20261121-0300|targetPrice:62452|period:1d',
+  };
+  const withBoth = (now: () => number) => {
+    const c = new Catalogue({ now });
+    c.reset({ outcomes: [btcDaily, nextDay, hawks], questions: [] }, templates);
+    return c;
+  };
+
+  it('keeps the stable key on the current market until it expires, then moves it', () => {
+    expect(withBoth(at('2026-11-20T02:00:00Z')).byKey('rb:BTC:1d')?.outcome).toBe(27121);
+    expect(withBoth(at('2026-11-20T03:05:00Z')).byKey('rb:BTC:1d')?.outcome).toBe(27153);
+  });
+
+  it('hides expired markets from browsing and search but still resolves held ones by id', () => {
+    const c = withBoth(at('2026-11-20T03:05:00Z'));
+    expect(c.all().map((m) => m.outcome)).not.toContain(27121);
+    expect(c.search('btc').map((m) => m.outcome)).not.toContain(27121);
+    expect(c.byOutcome(27121)).toBeDefined();
   });
 });
 

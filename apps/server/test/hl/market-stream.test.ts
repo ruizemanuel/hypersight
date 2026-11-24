@@ -47,15 +47,26 @@ const info: StreamInfo = {
       [{ px: '0.61', sz: '18.0', n: 1 }],
     ],
   }),
+  outcomeMeta: vi.fn(async () => ({ outcomes: [hawksSpec], questions: [] })),
+  outcomeTemplates: vi.fn(async () => []),
+};
+
+const hawksSpec = {
+  outcome: 24274,
+  name: 'Hawks v Mavericks',
+  description: 'free text',
+  sideSpecs: [{ name: 'Hawks' }, { name: 'Mavericks' }],
 };
 
 function make() {
   const f = fakeSubs();
+  const catalogue = new Catalogue();
+  catalogue.reset({ outcomes: [hawksSpec], questions: [] }, []);
   const stream = new MarketStream({
     info,
     subs: f.subs,
     user: USER,
-    catalogue: new Catalogue(),
+    catalogue,
     perpMeta: [],
     abstraction: 'default',
   });
@@ -173,5 +184,56 @@ describe('MarketStream', () => {
         'userFills',
       ].sort(),
     );
+  });
+
+  it.each([
+    ['SDK shape', { updates: [{ outcomeSettled: { outcome: 24274 } }] }],
+    ['documented shape', [{ outcomeSettled: 24274 }]],
+  ])('removes a settled market from the %s of outcomeMetaUpdates', async (_name, event) => {
+    const { stream, emit } = make();
+    await stream.start();
+    expect(stream.catalogue.byOutcome(24274)).toBeDefined();
+    emit('outcomeMetaUpdates', event);
+    expect(stream.catalogue.byOutcome(24274)).toBeUndefined();
+  });
+
+  it('survives a throwing listener and a malformed push', async () => {
+    const { stream, emit } = make();
+    await stream.start();
+    stream.on('fill', () => {
+      throw new Error('listener bug');
+    });
+    expect(() => emit('userFills', { user: USER, fills: [{ coin: 'ETH' }] })).not.toThrow();
+    expect(() => emit('outcomeMetaUpdates', { updates: 'garbage' })).not.toThrow();
+    expect(() => emit('clearinghouseState', { nope: true })).not.toThrow();
+    stream.on('view', () => {
+      throw new Error('listener bug');
+    });
+    emit('spotState', { user: USER, spotState: spot });
+    expect(() => vi.advanceTimersByTime(300)).not.toThrow();
+  });
+
+  it('reloads the outcome catalogue periodically (missed updates are not replayed)', async () => {
+    vi.setSystemTime(Date.UTC(2026, 10, 23, 12, 0));
+    const { stream } = make();
+    const before = (info.outcomeMeta as ReturnType<typeof vi.fn>).mock.calls.length;
+    await stream.start();
+    await vi.advanceTimersByTimeAsync(10 * 60_000 + 1000);
+    expect((info.outcomeMeta as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(
+      before,
+    );
+    await stream.stop();
+  });
+
+  it('reloads the catalogue shortly after the 03:00 UTC daily rotation', async () => {
+    vi.setSystemTime(Date.UTC(2026, 10, 24, 2, 58));
+    const { stream } = make();
+    const before = (info.outcomeMeta as ReturnType<typeof vi.fn>).mock.calls.length;
+    await stream.start();
+    await vi.advanceTimersByTimeAsync(2 * 60_000 + 20_000);
+    expect((info.outcomeMeta as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(
+      before,
+    );
+    await stream.stop();
   });
 });

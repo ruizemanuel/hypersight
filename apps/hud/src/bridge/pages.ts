@@ -149,7 +149,7 @@ export function createPageRenderer(
     if (plan.kind === 'none') return;
     if (plan.kind === 'upgrade') {
       for (const t of plan.texts) {
-        await queue.run(() =>
+        const ok = await queue.run(() =>
           bridge.textContainerUpgrade(
             new TextContainerUpgrade({
               containerID: t.id,
@@ -159,6 +159,12 @@ export function createPageRenderer(
             }),
           ),
         );
+        if (!ok) {
+          // The glasses still show the old text: force a full rebuild on the next render.
+          shown = null;
+          onTextUpdate();
+          return;
+        }
       }
       shown = next;
     } else {

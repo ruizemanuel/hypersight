@@ -62,6 +62,7 @@ const view = (over: Partial<AccountView> = {}): AccountView => ({
   equityUsd: 999.73,
   perpUpnlUsd: 0,
   marginRatio: 0,
+  marginUsage: 0,
   perpWithdrawableUsd: 0,
   spotUsdc: 999.73,
   perps: [],
@@ -178,5 +179,12 @@ describe('buildDeck', () => {
     );
     expect(card?.value).toBe('$1,042.50');
     expect(card?.lines[0]).toBe('Open PnL +$42.10');
+  });
+
+  it('shows margin used (committed margin), not the maintenance ratio', () => {
+    const card = deck(view({ marginUsage: 0.258, marginRatio: 0.03 })).find(
+      (c) => c.id === 'account',
+    );
+    expect(card?.lines[1]).toBe('Margin used 25.8%');
   });
 });

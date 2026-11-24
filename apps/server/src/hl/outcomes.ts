@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 /** HIP-4 outcome catalogue: raw `outcomeMeta` + `outcomeTemplates` → human markets with stable keys. */
 
 export type OutcomeSpecLike = {
@@ -274,6 +276,62 @@ export function buildCatalogue(
   return new Builder(meta, templates).build();
 }
 
+const SideSpecSchema = z.object({ name: z.string() });
+const OutcomeSpecSchema = z.object({
+  outcome: z.number(),
+  name: z.string(),
+  description: z.string(),
+  sideSpecs: z.array(SideSpecSchema),
+});
+const QuestionSpecSchema = z.object({
+  question: z.number(),
+  name: z.string(),
+  description: z.string(),
+  fallbackOutcome: z.number().nullable(),
+  namedOutcomes: z.array(z.number()),
+  settledNamedOutcomes: z.array(z.number()).default([]),
+});
+/** Settled ids arrive as numbers (docs) or as `{outcome}` / `{question}` objects (SDK types). */
+const idOf = (field: 'outcome' | 'question') =>
+  z
+    .union([z.number(), z.object({ [field]: z.number() })])
+    .transform((v) =>
+      typeof v === 'number' ? v : ((v as Record<string, number>)[field] as number),
+    );
+const UpdateSchema = z.union([
+  z
+    .object({ outcomeCreated: OutcomeSpecSchema })
+    .transform((u) => ({ outcomeCreated: u.outcomeCreated })),
+  z
+    .object({ outcomeSettled: idOf('outcome') })
+    .transform((u) => ({ outcomeSettled: u.outcomeSettled })),
+  z
+    .object({ questionUpdated: QuestionSpecSchema })
+    .transform((u) => ({ questionUpdated: u.questionUpdated })),
+  z
+    .object({ questionSettled: idOf('question') })
+    .transform((u) => ({ questionSettled: u.questionSettled })),
+]);
+
+/**
+ * `outcomeMetaUpdates` payload → catalogue updates. The SDK types (`{updates:[…]}`, settled ids as
+ * objects) and the docs (bare array, settled ids as numbers) disagree and no live event was
+ * captured, so both shapes are accepted and anything malformed is dropped, never thrown.
+ */
+export function parseOutcomeMetaEvent(event: unknown): OutcomeMetaUpdate[] {
+  const list = Array.isArray(event)
+    ? event
+    : Array.isArray((event as { updates?: unknown } | null)?.updates)
+      ? (event as { updates: unknown[] }).updates
+      : [];
+  const out: OutcomeMetaUpdate[] = [];
+  for (const item of list) {
+    const parsed = UpdateSchema.safeParse(item);
+    if (parsed.success) out.push(parsed.data as OutcomeMetaUpdate);
+  }
+  return out;
+}
+
 type InfoLike = {
   outcomeMeta(): Promise<unknown>;
   outcomeTemplates(): Promise<unknown>;
@@ -281,12 +339,17 @@ type InfoLike = {
 
 /** Live catalogue kept fresh by `outcomeMetaUpdates`; rebuilt from raw specs on every change. */
 export class Catalogue {
+  private readonly now: () => number;
   private outcomes = new Map<number, OutcomeSpecLike>();
   private questions = new Map<number, QuestionSpecLike>();
   private templates: OutcomeTemplateLike[] = [];
   private markets: OutcomeMarket[] = [];
-  private byKeyMap = new Map<string, OutcomeMarket>();
+  private byKeyGroups = new Map<string, OutcomeMarket[]>();
   private byOutcomeMap = new Map<number, OutcomeMarket>();
+
+  constructor(opts: { now?: () => number } = {}) {
+    this.now = opts.now ?? Date.now;
+  }
 
   async load(info: InfoLike): Promise<void> {
     const [meta, templates] = await Promise.all([info.outcomeMeta(), info.outcomeTemplates()]);
@@ -318,16 +381,34 @@ export class Catalogue {
     this.rebuild();
   }
 
+  /**
+   * During a rotation the old and new recurring outcomes coexist: the key belongs to the live
+   * (unexpired) outcome that expires first; once all have expired, to the newest id.
+   */
   byKey(key: string): OutcomeMarket | undefined {
-    return this.byKeyMap.get(key);
+    const group = this.byKeyGroups.get(key);
+    if (!group || group.length === 0) return undefined;
+    const now = this.now();
+    let live: OutcomeMarket | undefined;
+    let newest: OutcomeMarket | undefined;
+    for (const m of group) {
+      if (!newest || m.outcome > newest.outcome) newest = m;
+      if (m.expiresAt !== undefined && m.expiresAt <= now) continue;
+      const soonest =
+        (live?.expiresAt ?? Number.POSITIVE_INFINITY) > (m.expiresAt ?? Number.POSITIVE_INFINITY);
+      if (!live || soonest) live = m;
+    }
+    return live ?? newest;
   }
 
   byOutcome(id: number): OutcomeMarket | undefined {
     return this.byOutcomeMap.get(id);
   }
 
+  /** Markets that can still trade (expired ones stay resolvable by id until they settle). */
   all(): OutcomeMarket[] {
-    return this.markets;
+    const now = this.now();
+    return this.markets.filter((m) => m.expiresAt === undefined || m.expiresAt > now);
   }
 
   /** Whole-word matches rank above prefix and substring matches; ties go to the soonest expiry. */
@@ -335,7 +416,7 @@ export class Catalogue {
     const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
     if (terms.length === 0) return [];
     const scored: { m: OutcomeMarket; score: number }[] = [];
-    for (const m of this.markets) {
+    for (const m of this.all()) {
       const words = `${m.title} ${m.short} ${m.category ?? ''} ${m.sides.join(' ')}`
         .toLowerCase()
         .split(/[^a-z0-9.]+/)
@@ -361,11 +442,11 @@ export class Catalogue {
       this.templates,
     );
     this.byOutcomeMap = new Map(this.markets.map((m) => [m.outcome, m]));
-    // During a rotation the old and new recurring outcomes coexist: the newest id owns the key.
-    this.byKeyMap = new Map();
+    this.byKeyGroups = new Map();
     for (const m of this.markets) {
-      const current = this.byKeyMap.get(m.key);
-      if (!current || m.outcome > current.outcome) this.byKeyMap.set(m.key, m);
+      const group = this.byKeyGroups.get(m.key);
+      if (group) group.push(m);
+      else this.byKeyGroups.set(m.key, [m]);
     }
   }
 }

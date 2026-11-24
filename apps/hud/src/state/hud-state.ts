@@ -28,11 +28,13 @@ export type HudState = {
   exiting: boolean;
   status: HudStatus;
   badge: Badge;
+  /** False while the deck on screen is the cached one from a previous run. */
+  live: boolean;
 };
 
 export type HudEvent =
   | InputEvent
-  | { type: 'deck'; cards: CardModel[] }
+  | { type: 'deck'; cards: CardModel[]; cached?: true }
   | { type: 'overlay'; overlay: Overlay | null; at: number }
   | { type: 'status'; status: HudStatus }
   | { type: 'exitFailed' };
@@ -52,6 +54,7 @@ export const initialHudState: HudState = {
   exiting: false,
   status: 'connecting',
   badge: 'TESTNET',
+  live: false,
 };
 
 /** Contextual menu item ids (1 = Speak is handled by the voice controller). */
@@ -73,7 +76,7 @@ export function step(s: HudState, ev: HudEvent): Result {
       const index = kept >= 0 ? kept : Math.max(0, Math.min(s.index, ev.cards.length - 1));
       const badge = ev.cards[0]?.badge ?? s.badge;
       const mode = s.mode === 'actions' && kept < 0 ? 'deck' : s.mode;
-      return done({ ...s, cards: ev.cards, index, badge, mode });
+      return done({ ...s, cards: ev.cards, index, badge, mode, live: ev.cached !== true });
     }
     case 'overlay':
       return done({ ...s, overlay: ev.overlay, overlayAt: ev.at });
@@ -220,7 +223,7 @@ export function pageFor(s: HudState, now: number): PageSpec {
     return layoutStatus({ title, value, lines: [], hint: EXIT_HINT });
   }
   if (s.mode === 'actions') return layoutActions(card);
-  return layoutCard(card, s.index, s.cards.length, { offline: s.status !== 'open' });
+  return layoutCard(card, s.index, s.cards.length, { offline: s.status !== 'open' || !s.live });
 }
 
 export type DeckStorage = {
