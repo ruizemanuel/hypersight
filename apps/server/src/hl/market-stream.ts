@@ -54,6 +54,8 @@ export interface MarketSource extends EventEmitter {
   view(): AccountView;
   mids(): Record<string, string>;
   book(coin: string): Promise<Book>;
+  /** Fills of the UTC day of `now` (the recap card). */
+  todayFills(now: number): unknown[];
 }
 
 export type MarketStreamDeps = {

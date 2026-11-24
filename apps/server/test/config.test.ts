@@ -81,6 +81,12 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...valid, VOICE_LANG: 'es' })).toThrow(/VOICE_LANG/);
   });
 
+  it('serves captured market data with HL_FIXTURES=1, never with the testnet executor', () => {
+    expect(loadConfig(valid).fixtures).toBe(false);
+    expect(loadConfig({ ...valid, HL_FIXTURES: '1', EXECUTOR: 'fake' }).fixtures).toBe(true);
+    expect(() => loadConfig({ ...valid, HL_FIXTURES: '1' })).toThrow(/HL_FIXTURES/);
+  });
+
   it('rejects an unknown executor', () => {
     expect(() => loadConfig({ ...valid, EXECUTOR: 'mainnet' })).toThrow(/EXECUTOR/);
   });

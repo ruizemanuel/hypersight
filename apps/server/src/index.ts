@@ -9,8 +9,9 @@ import { buildDeck } from './deck/build-deck';
 import { createDeckPublisher } from './deck/publisher';
 import { computeRecap, dayStartUtc, type RecapFill } from './deck/recap';
 import { createHlClients } from './hl/clients';
+import { FixtureMarketStream } from './hl/fixture-stream';
 import { type PerpMeta, parsePerpMeta } from './hl/ids';
-import { MarketStream } from './hl/market-stream';
+import { type MarketSource, MarketStream } from './hl/market-stream';
 import { Catalogue, type OutcomeMarket } from './hl/outcomes';
 import { createApp } from './http/app';
 import { buildIntentContext, keytermsFor } from './intent/aliases';
@@ -75,7 +76,7 @@ function main(): void {
   const hl = createHlClients(cfg);
   const catalogue = new Catalogue();
   const badge = cfg.executor === 'paper' ? 'PAPER' : 'TESTNET';
-  let stream: MarketStream | null = null;
+  let stream: MarketSource | null = null;
   let alerts: AlertEngine | null = null;
 
   const watched = (): OutcomeMarket[] =>
@@ -334,24 +335,34 @@ function main(): void {
     if (!acc) return; // pairing mode: starts once a device pairs
     const user = acc.master;
     try {
-      const [meta, abstraction] = await Promise.all([
-        hl.info.meta(),
-        hl.info.userAbstraction({ user }),
-      ]);
-      await catalogue.load(hl.info);
-      perpMeta.splice(0, perpMeta.length, ...parsePerpMeta(meta));
-      const s = new MarketStream({
-        info: hl.info,
-        subs: hl.subs,
-        user,
-        catalogue,
-        perpMeta,
-        abstraction,
-        log,
-      });
+      let s: MarketSource;
+      let abstraction: string;
+      if (cfg.fixtures) {
+        // Captured data and a scripted price walk: nothing is read from Hyperliquid.
+        const f = new FixtureMarketStream({ catalogue });
+        await f.start();
+        perpMeta.splice(0, perpMeta.length, ...f.perpMeta());
+        s = f;
+        abstraction = 'fixtures';
+      } else {
+        const [meta, mode] = await Promise.all([hl.info.meta(), hl.info.userAbstraction({ user })]);
+        await catalogue.load(hl.info);
+        perpMeta.splice(0, perpMeta.length, ...parsePerpMeta(meta));
+        const live = new MarketStream({
+          info: hl.info,
+          subs: hl.subs,
+          user,
+          catalogue,
+          perpMeta,
+          abstraction: mode,
+          log,
+        });
+        await live.start();
+        s = live;
+        abstraction = mode;
+      }
       s.on('view', () => publisher.publish());
       s.on('outcomeMeta', () => publisher.publish());
-      await s.start();
       stream = s;
       alerts = new AlertEngine({
         stream: s,

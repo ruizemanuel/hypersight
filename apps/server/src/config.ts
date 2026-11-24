@@ -19,6 +19,8 @@ export type Config = {
   pairing: boolean;
   /** Speech-to-text language: English, or `multi` to let the provider detect it (Spanish too). */
   voiceLang: 'en' | 'multi';
+  /** HL_FIXTURES=1: captured market data and a scripted price walk (e2e, demo); fake/paper only. */
+  fixtures: boolean;
   /** Missing key disables the Claude intent fallback (the fast grammar still works). */
   anthropicKey: string | undefined;
   /** Missing key disables voice (every action stays reachable by tap). */
@@ -68,6 +70,12 @@ export function loadConfig(env: Env): Config {
     throw new ConfigError('VOICE_LANG must be en or multi');
   }
 
+  const fixtures = get('HL_FIXTURES') === '1';
+  // Orders priced from captured data must never reach the exchange.
+  if (fixtures && executor === 'testnet') {
+    throw new ConfigError('HL_FIXTURES=1 needs EXECUTOR=fake or paper');
+  }
+
   const portRaw = get('PORT') ?? '8787';
   const port = Number(portRaw);
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
@@ -94,6 +102,7 @@ export function loadConfig(env: Env): Config {
           ),
     pairing,
     voiceLang,
+    fixtures,
     agentPrivateKey:
       agentRaw === undefined
         ? undefined

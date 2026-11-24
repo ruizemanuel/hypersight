@@ -11,6 +11,7 @@ const base: Config = {
   agentPrivateKey: `0x${'ab'.repeat(32)}`,
   pairing: false,
   voiceLang: 'en',
+  fixtures: false,
   anthropicKey: undefined,
   elevenLabsKey: undefined,
   encryptionKey: 'cd'.repeat(32),
