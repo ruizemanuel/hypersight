@@ -96,3 +96,12 @@ The 2 NO shares of the BTC daily (outcome 27153, `class:priceBinary|underlying:B
 - Detect settlement of a held position from `userFills` / the `userFills` WS feed: `dir === "Settlement"`; `px` is the payout per share (1.0 for the winning side) and `closedPnl` is the realized result. This drives the `settled` alert ("NO won · +$0.76") and the recap, without polling `settledOutcome`.
 - `outcomeMetaUpdates {outcomeSettled}` still removes the market from the catalogue; the position card disappears because the `+enc` balance is gone on the next `spotState` push.
 - Settlement charges a small fee; the result card shows `closedPnl` (already net of cost, before fee) and does not promise exactly `$1 × shares`.
+
+## 6. TestnetExecutor live check (2026-11-24, Task 18)
+
+`RUN_LIVE_HL=1` run of `test/trade/testnet-executor.test.ts` through the real agent wallet:
+
+| Step | Result |
+|---|---|
+| Place `#273210` (BTC daily YES, outcome 27321) buy **100 @ 0.01 Gtc** with `expiresAfter = now + 10 s` | `resting` — order `open` at 00:55:12.982 UTC. 100 shares is the smallest size at 0.01 (1 USDC minimum), not the 1 share the plan named. |
+| `cancelAll` (`frontendOpenOrders` → one batched `cancel`, no `f`) | `canceled` at 00:55:14.361 UTC (~1.4 s later); 0 open orders afterwards. |
