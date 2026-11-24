@@ -153,6 +153,20 @@ describe('VoiceController', () => {
     expect(changes).toEqual(['listening:menu', 'cancelled:menu']);
   });
 
+  it('turns a double tap while the mic is closing into a cancel (never a late voice end)', async () => {
+    const { voice, log } = harness({ audioDelayMs: 100 });
+    const starting = voice.onInput({ type: 'holdStart' });
+    await vi.advanceTimersByTimeAsync(150);
+    await starting;
+    const stopping = voice.onInput({ type: 'holdEnd' });
+    expect(voice.consumes({ type: 'doubleTap' })).toBe(true);
+    await voice.onInput({ type: 'doubleTap' });
+    await vi.advanceTimersByTimeAsync(150);
+    await stopping;
+    expect(log.at(-1)).toBe('send(cancel)');
+    expect(log).not.toContain('send(end)');
+  });
+
   it('leaves a double tap to the deck while idle', () => {
     const { voice } = harness();
     expect(voice.consumes({ type: 'doubleTap' })).toBe(false);

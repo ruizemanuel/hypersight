@@ -220,6 +220,44 @@ describe('SessionController — voice to confirm to execute', () => {
     expect(s.overlays().some((o) => o?.kind === 'confirm')).toBe(false);
   });
 
+  it('drops an utterance dismissed between voice end and the final transcript', async () => {
+    const s = setup();
+    let finishStt: () => void = () => {};
+    const sttDone = new Promise<void>((r) => {
+      finishStt = r;
+    });
+    // The STT finish can take seconds: the dismiss lands before the transcript does.
+    (s.controller as unknown as { deps: { voice: unknown } }).deps.voice = {
+      start: () => {},
+      cancel: () => {},
+      end: async (session: typeof s.session) => {
+        await sttDone;
+        await s.controller.onTranscript(session, 'close half my eth', {});
+      },
+    };
+    const ending = s.controller.onClientMsg(s.session, { t: 'voice', phase: 'end' });
+    await s.controller.onClientMsg(s.session, { t: 'dismiss' });
+    finishStt();
+    await ending;
+    expect(s.overlays().at(-1)).toBeNull();
+    expect(s.overlays().some((o) => o?.kind === 'confirm' || o?.kind === 'thinking')).toBe(false);
+  });
+
+  it('drops a voice answer when the device disconnects while it is being resolved', async () => {
+    let release: (r: Resolution) => void = () => {};
+    const s = setup({
+      resolve: () =>
+        new Promise<Resolution>((r) => {
+          release = r;
+        }),
+    });
+    const pending = s.controller.onTranscript(s.session, 'get me out of eth', {});
+    s.controller.onDetach(s.session);
+    release({ intent: { kind: 'closePerp', coin: 'ETH', fraction: 1 }, source: 'llm', ms: 900 });
+    await pending;
+    expect(s.session.overlay()).toBeNull();
+  });
+
   it('re-proposes at the new price when the price moved before confirm', async () => {
     const s = setup();
     await s.controller.onTranscript(s.session, 'close half my eth', {});

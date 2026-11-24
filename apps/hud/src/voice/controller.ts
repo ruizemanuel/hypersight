@@ -37,6 +37,8 @@ export class VoiceController {
   private stopRequested = false;
   /** Cancelled (or disconnected) while the mic was still opening: close it, never start. */
   private abortRequested = false;
+  /** Cancelled while the mic was closing: send `cancel` instead of `end`. */
+  private cancelRequested = false;
   /** Set after an early disconnect; cleared when the glasses report connected again. */
   private blocked = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -65,7 +67,7 @@ export class VoiceController {
     if (ev.type === 'holdStart' || ev.type === 'holdEnd') return true;
     if (ev.type === 'menu') return ev.id === MENU_SPEAK;
     if (ev.type === 'tap') return this.source === 'menu' && this.phase !== 'idle';
-    if (ev.type === 'doubleTap') return this.phase === 'starting' || this.phase === 'listening';
+    if (ev.type === 'doubleTap') return this.phase !== 'idle';
     return false;
   }
 
@@ -162,6 +164,10 @@ export class VoiceController {
       this.abortRequested = true;
       return;
     }
+    if (this.phase === 'stopping') {
+      this.cancelRequested = true;
+      return;
+    }
     if (this.phase === 'listening') await this.finish('cancel');
   }
 
@@ -171,9 +177,10 @@ export class VoiceController {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     await this.closeMic();
-    this.deps.socket.send({ t: 'voice', phase: how });
+    const phase = this.cancelRequested ? 'cancel' : how;
+    this.deps.socket.send({ t: 'voice', phase });
     this.reset();
-    this.emit(how === 'end' ? 'sent' : 'cancelled', source);
+    this.emit(phase === 'end' ? 'sent' : 'cancelled', source);
   }
 
   private async closeMic(): Promise<void> {
@@ -187,6 +194,7 @@ export class VoiceController {
   private reset(): void {
     this.phase = 'idle';
     this.source = null;
+    this.cancelRequested = false;
   }
 
   private emit(change: VoiceChange, source: VoiceSource): void {

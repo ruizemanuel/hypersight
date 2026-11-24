@@ -42,6 +42,8 @@ type DeviceState = {
   gen: number;
   cardFocus?: Focus;
   oddsFocus?: { marketKey: string; at: number };
+  /** Generation when the current utterance ended: a dismiss during speech-to-text drops it. */
+  utterance?: number;
   /** An alert that arrived while the user was busy (confirm, listening, thinking). */
   pendingAlert?: Overlay;
 };
@@ -92,6 +94,8 @@ export class SessionController {
 
   /** Listening/Thinking never outlive the connection (a reconnect would replay a dead state). */
   onDetach(session: Session): void {
+    // A voice answer still being resolved must not land a confirm the user never saw.
+    this.device(session).gen++;
     this.deps.voice?.cancel(session);
     const kind = session.overlay()?.kind;
     if (kind === 'listening' || kind === 'thinking') session.send({ t: 'overlay', overlay: null });
@@ -151,6 +155,7 @@ export class SessionController {
           else delete dev.cardFocus;
           this.deps.voice?.start(session);
         } else if (msg.phase === 'end') {
+          dev.utterance = dev.gen;
           await this.deps.voice?.end(session);
         } else {
           dev.gen++;
@@ -164,7 +169,9 @@ export class SessionController {
 
   async onTranscript(session: Session, text: string, timing: { sttMs?: number }): Promise<void> {
     const dev = this.device(session);
-    const gen = dev.gen;
+    const gen = dev.utterance ?? dev.gen;
+    delete dev.utterance;
+    if (dev.gen !== gen) return;
     this.show(session, { kind: 'thinking' });
     const r = await this.deps.resolve(text, this.deps.context(this.focus(dev)));
     if (dev.gen !== gen) return;
