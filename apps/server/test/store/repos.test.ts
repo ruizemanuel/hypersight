@@ -91,7 +91,7 @@ describe('rules', () => {
 
   it('upserts, lists and removes validated rules', () => {
     const { rules } = createRepos(openDb(':memory:'));
-    // The seeded defaults (Task 20) are covered in alerts/engine.test.ts.
+    // The seeded defaults are covered in alerts/engine.test.ts.
     const own = () => rules.list().filter((r) => !r.id.startsWith('default-'));
     rules.upsert(rule);
     rules.upsert({ ...rule, enabled: false });

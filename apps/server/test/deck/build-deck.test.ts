@@ -95,7 +95,7 @@ describe('buildDeck', () => {
     expect(card?.lines.join(' ')).not.toContain('liq $');
   });
 
-  it('never shows a blank deck for a fresh account (Review Focus 1)', () => {
+  it('never shows a blank deck for a fresh account', () => {
     const cards = deck(view());
     expect(cards.map((c) => c.id)).toEqual(['account', 'empty', 'mkt:rb:BTC:1d', 'mkt:rb:ETH:1d']);
     const empty = cards.find((c) => c.id === 'empty');

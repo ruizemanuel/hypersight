@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { toPcmBytes } from '../src/voice/pcm';
 
-// Phase 3 review I7: the SDK documents audioPcm as Uint8Array, but notes the host's Uint8List
+// The SDK documents audioPcm as Uint8Array, but notes the host's Uint8List
 // often arrives through JSON as number[] or a base64 string. A non-binary value would be sent as
 // a text frame and the server would answer bad_message.
 describe('toPcmBytes', () => {

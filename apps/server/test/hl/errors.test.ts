@@ -2,7 +2,7 @@ import { ApiRequestError } from '@nktkas/hyperliquid/api/exchange';
 import { describe, expect, it } from 'vitest';
 import { humanizeHlError, mapOrderStatuses } from '../../src/hl/errors';
 
-describe('mapOrderStatuses (Review Focus 4: partial fills are never reported as filled)', () => {
+describe('mapOrderStatuses (partial fills are never reported as filled)', () => {
   it('reports a partial fill with filled/requested and the average price', () => {
     expect(
       mapOrderStatuses([{ filled: { totalSz: '12', avgPx: '0.61', oid: 1 } }], 40),

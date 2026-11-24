@@ -8,7 +8,7 @@ export type TokenStorage = {
 
 /**
  * The dev server injects its token at serve time only; packaged builds never contain it and read
- * the token the user stored on the phone (pairing in Task 22 replaces this).
+ * the token the user stored on the phone (per-device pairing will replace this).
  */
 export async function loadToken(devToken: string, storage: TokenStorage): Promise<string | null> {
   if (devToken) return devToken;

@@ -109,7 +109,7 @@ function setup(opts: { resolve?: (text: string) => Promise<Resolution> } = {}) {
   const sent: ServerMsg[] = [];
   const socket = {
     readyState: 1,
-    // Phase 1 review #7: every message the server sends must pass the protocol schema.
+    // Every message the server sends must pass the protocol schema.
     send: (d: string) => sent.push(ServerMsgSchema.parse(JSON.parse(d))),
     close: () => {},
   };
@@ -160,7 +160,7 @@ describe('SessionController — voice to confirm to execute', () => {
       expect.arrayContaining(['proposal', 'confirm', 'result']),
     );
 
-    // Review Focus 3: the snapshot a reconnecting client replays ends on the result.
+    // The snapshot a reconnecting client replays ends on the result.
     const replay = s.session.snapshot().filter((m) => m.t === 'overlay');
     expect(replay.at(-1)).toMatchObject({ overlay: { kind: 'result', ok: true } });
 
@@ -302,7 +302,7 @@ describe('SessionController — taps and menu', () => {
   });
 });
 
-// Phase 3 review I8 (demo moment 3): "odds on …?" then "buy 20 dollars of yes".
+// "odds on …?" then "buy 20 dollars of yes".
 describe('SessionController — focus', () => {
   it('uses the market from the last odds answer when the next command names none', async () => {
     const s = setup();
@@ -324,7 +324,7 @@ describe('SessionController — focus', () => {
   });
 });
 
-describe('SessionController — alerts (Task 20)', () => {
+describe('SessionController — alerts', () => {
   const takeHalf = {
     ruleId: 'eth-pnl',
     title: 'ETH +5.5%',
@@ -360,7 +360,7 @@ describe('SessionController — alerts (Task 20)', () => {
   });
 });
 
-describe('SessionController — stale overlays (Phase 1/3 review)', () => {
+describe('SessionController — stale overlays', () => {
   it('clears Listening/Thinking from the snapshot when the client goes away', async () => {
     const s = setup();
     s.session.send({ t: 'overlay', overlay: { kind: 'listening', transcript: 'close' } });

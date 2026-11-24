@@ -174,7 +174,7 @@ describe('hudReducer overlays and link status', () => {
     expect(r.state.overlay).toBeNull();
   });
 
-  // Phase 3 review I3: Thinking must never trap the glasses, whoever sent it.
+  // Thinking must never trap the glasses, whoever sent it.
   it('dismisses a thinking overlay on double tap', () => {
     const r = run([
       { type: 'overlay', overlay: { kind: 'thinking' }, at: 0 },

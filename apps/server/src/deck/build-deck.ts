@@ -169,7 +169,7 @@ function emptyCard(watch: OutcomeMarket[], presets: Presets, badge: Badge): Card
   };
 }
 
-/** Deck order (spec §7.3): account, perps, outcome positions, watched markets. */
+/** Deck order: account, perps, outcome positions, watched markets. */
 export function buildDeck(input: DeckInput): CardModel[] {
   const { view, watch, presets, badge, now } = input;
   const cards: CardModel[] = [accountCard(view, badge)];

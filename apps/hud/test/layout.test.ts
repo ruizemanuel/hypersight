@@ -144,7 +144,7 @@ describe('layoutOverlay', () => {
     expect(text.val).toBe('CLOSE 50% ETH LONG');
   });
 
-  it('shows what was heard under the confirm details (Phase 3 review)', () => {
+  it('shows what was heard under the confirm details', () => {
     const page = layoutOverlay(
       {
         kind: 'confirm',

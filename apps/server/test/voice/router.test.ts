@@ -87,7 +87,7 @@ describe('VoiceRouter', () => {
     });
   });
 
-  // Phase 3 review I4: 2×TAP while listening abandons the utterance.
+  // 2×TAP while listening abandons the utterance.
   it('drops the stream, skips the transcript and clears the overlay on voice cancel', async () => {
     const { router, session, streams, transcripts, sent } = setup();
     router.start(session);

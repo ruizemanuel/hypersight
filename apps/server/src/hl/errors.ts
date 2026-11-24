@@ -65,7 +65,7 @@ const EPS = 1e-9;
 
 /**
  * Order statuses → one result. A partial fill is reported as partial (filled/requested), never as
- * filled (Review Focus 4); errors only win when nothing filled or rested.
+ * filled; errors only win when nothing filled or rested.
  */
 export function mapOrderStatuses(statuses: unknown[], requestedSz: number): ExecResult {
   let filledSz = 0;

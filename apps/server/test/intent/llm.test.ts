@@ -55,7 +55,7 @@ describe('parseIntentLLM', () => {
     expect(params.messages).toEqual([{ role: 'user', content: 'take profit on half of my ether' }]);
   });
 
-  // Phase 3 review I3: the SDK default (10 min, 2 retries) would trap the glasses on Thinking.
+  // The SDK default (10 min, 2 retries) would trap the glasses on Thinking.
   it('bounds the call: 8 s per attempt, one retry, 12 s overall', async () => {
     const { client, spy } = stubClient(ok({ kind: 'cancelAll' }));
     await parseIntentLLM('x', ctx, { client, model: 'm' });
@@ -86,7 +86,7 @@ describe('parseIntentLLM', () => {
     expect((await parseIntentLLM('x', ctx, { client, model: 'm' })).kind).toBe('unknown');
   });
 
-  // Phase 3 review I6: "never invent amounts" is enforced in code, not only in the prompt.
+  // "never invent amounts" is enforced in code, not only in the prompt.
   it.each<[string, unknown, boolean]>([
     ['long sol with some money', { kind: 'openPerp', coin: 'SOL', side: 'long', usd: 50 }, false],
     ['long sol fifty', { kind: 'openPerp', coin: 'SOL', side: 'long', usd: 50 }, true],

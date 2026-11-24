@@ -109,7 +109,7 @@ describe('parseIntentFast', () => {
     expect(parseIntentFast('long eth at 5x', base)).toBeNull();
   });
 
-  // Phase 3 review I8: the market/coin in focus (last odds answer, card on screen).
+  // The market/coin in focus (last odds answer, card on screen).
   it('uses the focused market when the command names none', () => {
     const btcFocus: IntentContext = { ...base, focus: { marketKey: 'rb:BTC:1d' } };
     expect(parseIntentFast('buy 20 dollars of yes', btcFocus)).toEqual({
@@ -143,7 +143,7 @@ describe('parseIntentFast', () => {
   const onlyEth: IntentContext = { ...base, positions: [{ coin: 'ETH' }] };
   const coreCoinsOnlyEth: IntentContext = { ...onlyEth, perpCoins: ['BTC', 'ETH', 'SOL', 'HYPE'] };
 
-  // Phase 3 review I1: every number fills exactly one slot, and anything unclear goes to the LLM.
+  // Every number fills exactly one slot, and anything unclear goes to the LLM.
   it.each<[string, Intent | null, IntentContext?]>([
     ['close three quarters of my eth', { kind: 'closePerp', coin: 'ETH', fraction: 0.75 }],
     ['close two thirds of my eth', { kind: 'closePerp', coin: 'ETH', fraction: 0.667 }],
@@ -190,7 +190,7 @@ describe('parseIntentFast', () => {
   });
 });
 
-// Phase 3 review I2: the real catalogue has price-bucket markets that share the daily's aliases.
+// The real catalogue has price-bucket markets that share the daily's aliases.
 describe('parseIntentFast with the captured testnet catalogue', () => {
   const now = Date.UTC(2026, 10, 23, 12);
   const catalogue = new Catalogue({ now: () => now });

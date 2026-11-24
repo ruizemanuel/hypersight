@@ -29,3 +29,7 @@ Thumbs.db
 .idea/
 *.log
 tmp/
+
+# local working notes (never published)
+docs/superpowers/
+.superpowers/

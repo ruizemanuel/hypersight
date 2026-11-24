@@ -36,7 +36,7 @@ const MIGRATIONS: string[] = [
   );
   INSERT INTO watch (key, position) VALUES ('rb:BTC:1d', 0), ('rb:ETH:1d', 1);
   `,
-  // Default alert rules (Task 20): resting fills, liquidation distance < 10%, settled outcomes.
+  // Default alert rules: resting fills, liquidation distance < 10%, settled outcomes.
   `
   INSERT INTO rules (id, json) VALUES
     ('default-fill', '{"id":"default-fill","kind":"fill","params":{},"cooldownMs":0,"enabled":true}'),

@@ -12,7 +12,7 @@ export type PaperExecutorDeps = {
 const fmt = (n: number): string => String(Number(n.toPrecision(12)));
 
 /**
- * Paper trading on live order books (spec fallback if testnet funding fails): an order fills in
+ * Paper trading on live order books (fallback if testnet funding fails): an order fills in
  * full at the best opposite price when that price is within its limit, else nothing executes.
  * Transfers and leverage are no-ops; stops are acknowledged but not simulated.
  */

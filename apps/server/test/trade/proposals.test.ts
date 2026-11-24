@@ -163,7 +163,7 @@ describe('ProposalService.propose', () => {
     expect(poor).toEqual({ blocked: 'Not enough USDC' });
   });
 
-  it('blocks a risky open and audits it (Review Focus 5)', async () => {
+  it('blocks a risky open and audits it', async () => {
     const s = setup();
     expect(
       await s.service.propose({ kind: 'openPerp', coin: 'ETH', side: 'long', usd: 500 }),
@@ -291,7 +291,7 @@ describe('ProposalService.confirm', () => {
     s = setup();
   });
 
-  it('executes once even when confirmed twice concurrently (Review Focus 3)', async () => {
+  it('executes once even when confirmed twice concurrently', async () => {
     let release: (r: ExecResult) => void = () => {};
     s.executor.execute = async (plan) => {
       s.executor.plans.push(plan);
@@ -330,7 +330,7 @@ describe('ProposalService.confirm', () => {
     expect(s.repos.usage.today(s.clock.now)).toBeCloseTo(0.0146 * 3412, 6);
   });
 
-  it('refuses a confirm after the market settled (Review Focus 2)', async () => {
+  it('refuses a confirm after the market settled', async () => {
     const p = await proposed(s, {
       kind: 'buyOutcome',
       marketKey: 'rb:BTC:1d',

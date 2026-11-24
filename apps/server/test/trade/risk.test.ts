@@ -25,7 +25,7 @@ describe('checkRisk', () => {
     });
   });
 
-  it('blocks an order above the per-order cap and shows the cap (Review Focus 5)', () => {
+  it('blocks an order above the per-order cap and shows the cap', () => {
     expect(checkRisk(open({ notionalUsd: 500 }), DEFAULT_RISK_LIMITS, ctx)).toEqual({
       ok: false,
       reason: 'Max order is $250',
