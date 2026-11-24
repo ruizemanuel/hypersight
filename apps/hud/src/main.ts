@@ -181,8 +181,9 @@ async function boot(): Promise<void> {
   // Thinking is expired by the reducer so it can never stay up forever.
   setInterval(() => {
     const kind = state.overlay?.kind;
-    if (kind === 'thinking' || kind === 'result') dispatch({ type: 'tick', now: Date.now() });
-    else if (kind === 'confirm' || kind === 'listening') render();
+    if (kind === 'thinking' || kind === 'result' || kind === 'confirm') {
+      dispatch({ type: 'tick', now: Date.now() });
+    } else if (kind === 'listening') render();
   }, 1000);
 
   render(); // creates the startup page ("Connecting…")
@@ -213,8 +214,12 @@ async function boot(): Promise<void> {
     dispatch({ type: 'status', status: s });
   });
   socket.onMessage((m) => {
-    if (m.t === 'welcome') dispatch({ type: 'status', status: 'open' });
-    else if (m.t === 'deck') {
+    if (m.t === 'welcome') {
+      if (m.serverTime !== undefined) {
+        dispatch({ type: 'clock', serverTime: m.serverTime, at: Date.now() });
+      }
+      dispatch({ type: 'status', status: 'open' });
+    } else if (m.t === 'deck') {
       deckCache.save(m.cards);
       dispatch({ type: 'deck', cards: m.cards }, true);
     } else if (m.t === 'overlay') {

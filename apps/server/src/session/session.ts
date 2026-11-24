@@ -84,7 +84,7 @@ export class Session extends EventEmitter {
     const foreign = knownSessionId !== undefined && knownSessionId !== this.id;
     const cursor = foreign || (lastSeq ?? 0) > this.seq ? 0 : (lastSeq ?? 0);
     const missed = this.snapshot().filter((m) => seqOf(m) > cursor);
-    this.send({ t: 'welcome', sessionId: this.id });
+    this.send({ t: 'welcome', sessionId: this.id, serverTime: Date.now() });
     for (const m of missed) this.write(m);
     this.safeEmit('attach');
   }

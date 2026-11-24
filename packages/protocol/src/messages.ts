@@ -5,7 +5,13 @@ const seq = z.number().int().nonnegative();
 
 /** Server to HUD. `welcome`, `deck` and `overlay` are sequenced so a reconnecting HUD can resume. */
 export const ServerMsgSchema = z.discriminatedUnion('t', [
-  z.object({ t: z.literal('welcome'), sessionId: z.string().min(1), seq }),
+  z.object({
+    t: z.literal('welcome'),
+    sessionId: z.string().min(1),
+    seq,
+    /** Server clock (epoch ms): confirm deadlines are server times, phone clocks drift. */
+    serverTime: z.number().optional(),
+  }),
   z.object({ t: z.literal('deck'), seq, cards: z.array(CardModelSchema) }),
   z.object({ t: z.literal('overlay'), seq, overlay: OverlaySchema.nullable() }),
   z.object({ t: z.literal('error'), code: z.string().min(1), message: z.string() }),

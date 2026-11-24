@@ -167,7 +167,7 @@ describe('startGateway', () => {
     ws.send(JSON.stringify({ t: 'hello', token: TOKEN, lastSeq: 1 }));
     await expect.poll(() => msgs.length).toBe(2);
     expect(msgs).toEqual([
-      { t: 'welcome', sessionId: s.id, seq: 3 },
+      { t: 'welcome', sessionId: s.id, seq: 3, serverTime: expect.any(Number) },
       { t: 'overlay', seq: 2, overlay: { kind: 'thinking' } },
     ]);
     ws.close();

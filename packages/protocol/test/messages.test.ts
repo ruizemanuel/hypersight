@@ -61,6 +61,11 @@ describe('ClientMsgSchema', () => {
 });
 
 describe('ServerMsgSchema', () => {
+  it('carries the server clock in welcome (confirm countdowns use it)', () => {
+    const msg = { t: 'welcome', seq: 1, sessionId: 's1', serverTime: 1_795_000_000_000 };
+    expect(ServerMsgSchema.parse(msg)).toEqual(msg);
+  });
+
   it('accepts a confirm card with a note line (what was heard, price moved)', () => {
     const msg = {
       t: 'overlay',

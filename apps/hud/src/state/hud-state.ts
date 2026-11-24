@@ -30,6 +30,8 @@ export type HudState = {
   badge: Badge;
   /** False while the deck on screen is the cached one from a previous run. */
   live: boolean;
+  /** Server clock minus phone clock (ms), from `welcome`: confirm deadlines are server times. */
+  clockOffset: number;
 };
 
 export type HudEvent =
@@ -38,6 +40,7 @@ export type HudEvent =
   | { type: 'overlay'; overlay: Overlay | null; at: number }
   | { type: 'status'; status: HudStatus }
   | { type: 'exitFailed' }
+  | { type: 'clock'; serverTime: number; at: number }
   /** Once a second: expires overlays that must not stay up forever. */
   | { type: 'tick'; now: number };
 
@@ -71,6 +74,7 @@ export const initialHudState: HudState = {
   status: 'connecting',
   badge: 'TESTNET',
   live: false,
+  clockOffset: 0,
 };
 
 /** Contextual menu item ids (1 = Speak is handled by the voice controller). */
@@ -102,7 +106,10 @@ export function step(s: HudState, ev: HudEvent): Result {
         return done({ ...s, overlay: { ...ev.overlay, ...(source ? { source } : {}) } });
       }
       // A confirm replayed after a reconnect may already be dead: never offer it.
-      if (ev.overlay?.kind === 'confirm' && ev.overlay.proposal.expiresAt <= ev.at) {
+      if (
+        ev.overlay?.kind === 'confirm' &&
+        ev.overlay.proposal.expiresAt <= ev.at + s.clockOffset
+      ) {
         return done(prev?.kind === 'confirm' ? { ...s, overlay: null } : s);
       }
       return done({ ...s, overlay: ev.overlay, overlayAt: ev.at });
@@ -111,7 +118,16 @@ export function step(s: HudState, ev: HudEvent): Result {
       return done({ ...s, status: ev.status });
     case 'exitFailed':
       return done({ ...s, exiting: false, mode: 'deck' });
+    case 'clock':
+      return done({ ...s, clockOffset: ev.serverTime - ev.at });
     case 'tick':
+      // "No tap → auto-cancel": the server refuses a late confirm anyway; clear it and say so.
+      if (s.overlay?.kind === 'confirm' && s.overlay.proposal.expiresAt <= ev.now + s.clockOffset) {
+        return done(
+          { ...s, overlay: null },
+          { type: 'send', msg: { t: 'cancel', proposalId: s.overlay.proposal.id } },
+        );
+      }
       if (s.overlay?.kind === 'result' && ev.now - s.overlayAt > RESULT_MS) {
         return done({ ...s, overlay: null }, { type: 'send', msg: { t: 'dismiss' } });
       }
@@ -254,7 +270,11 @@ export function pageFor(s: HudState, now: number): PageSpec {
       hint: 'TAP exit · 2×TAP stay',
     });
   }
-  if (s.overlay) return layoutOverlay(s.overlay, now, { badge: s.badge, shownAt: s.overlayAt });
+  if (s.overlay) {
+    // Countdowns run on the server clock; elapsed times stay on the phone clock.
+    const clock = s.overlay.kind === 'confirm' ? now + s.clockOffset : now;
+    return layoutOverlay(s.overlay, clock, { badge: s.badge, shownAt: s.overlayAt });
+  }
   if (s.status === 'replaced') {
     return layoutStatus({
       title,

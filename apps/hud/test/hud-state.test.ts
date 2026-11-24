@@ -250,6 +250,29 @@ describe('hudReducer overlays and link status', () => {
     expect(later.effects).toEqual([{ type: 'send', msg: { t: 'dismiss' } }]);
   });
 
+  it('judges confirm expiry on the server clock, not the phone clock', () => {
+    const fresh = {
+      kind: 'confirm' as const,
+      proposal: { id: 'p1', title: 'CLOSE 50% ETH LONG', lines: [], expiresAt: 1_015_000 },
+    };
+    // Phone 16 s ahead of the server: the card was created at server time 1_000_000.
+    const { state } = run([
+      { type: 'clock', serverTime: 1_000_000, at: 1_016_000 },
+      { type: 'overlay', overlay: fresh, at: 1_016_200 },
+    ]);
+    expect(state.overlay).toEqual(fresh);
+    const ftr = pageFor(state, 1_017_000).texts.find((t) => t.name === 'ftr')?.text;
+    expect(ftr).toBe('TAP confirm · 2×TAP cancel · 14s');
+  });
+
+  it('auto-cancels a confirm card when its time runs out', () => {
+    const shown = run([{ type: 'overlay', overlay: confirm, at: 0 }]).state;
+    expect(step(shown, { type: 'tick', now: 9_000 }).state.overlay).toEqual(confirm);
+    const late = step(shown, { type: 'tick', now: 10_500 });
+    expect(late.state.overlay).toBeNull();
+    expect(late.effects).toEqual([{ type: 'send', msg: { t: 'cancel', proposalId: 'p1' } }]);
+  });
+
   it('ignores a confirm card that already expired (replayed after a reconnect)', () => {
     const stale = {
       kind: 'confirm' as const,
@@ -272,7 +295,8 @@ describe('hudReducer overlays and link status', () => {
   });
 
   it('leaves other overlays alone on tick', () => {
-    const shown = run([{ type: 'overlay', overlay: confirm, at: 0 }]).state;
+    const alert = { kind: 'alert' as const, title: 'ETH above 3,400', lines: [] };
+    const shown = run([{ type: 'overlay', overlay: alert, at: 0 }]).state;
     expect(step(shown, { type: 'tick', now: 60_000 }).state).toBe(shown);
   });
 

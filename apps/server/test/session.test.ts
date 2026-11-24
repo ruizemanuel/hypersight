@@ -35,7 +35,7 @@ describe('Session', () => {
     s.send({ t: 'error', code: 'x', message: 'y' });
     s.send({ t: 'overlay', overlay: { kind: 'thinking' } });
     expect(ws.sent).toEqual([
-      { t: 'welcome', sessionId: 's1', seq: 1 },
+      { t: 'welcome', sessionId: 's1', seq: 1, serverTime: expect.any(Number) },
       { t: 'deck', seq: 2, cards: [card] },
       { t: 'error', code: 'x', message: 'y' },
       { t: 'overlay', seq: 3, overlay: { kind: 'thinking' } },
@@ -50,7 +50,7 @@ describe('Session', () => {
     const ws = new FakeWs();
     s.attach(ws, 0);
     expect(ws.sent).toEqual([
-      { t: 'welcome', sessionId: 's1', seq: 4 },
+      { t: 'welcome', sessionId: 's1', seq: 4, serverTime: expect.any(Number) },
       { t: 'deck', seq: 2, cards: [card] },
       { t: 'overlay', seq: 3, overlay: { kind: 'thinking' } },
     ]);
@@ -65,7 +65,9 @@ describe('Session', () => {
     s.detach(first);
     const again = new FakeWs();
     s.attach(again, 3);
-    expect(again.sent).toEqual([{ t: 'welcome', sessionId: 's1', seq: 4 }]);
+    expect(again.sent).toEqual([
+      { t: 'welcome', sessionId: 's1', seq: 4, serverTime: expect.any(Number) },
+    ]);
   });
 
   it('replays only what the client missed', () => {
@@ -96,7 +98,12 @@ describe('Session', () => {
     expect(a.closed?.code).toBe(4000);
     s.send({ t: 'pong' });
     expect(b.sent.at(-1)).toEqual({ t: 'pong' });
-    expect(a.sent.at(-1)).toEqual({ t: 'welcome', sessionId: 's1', seq: 1 });
+    expect(a.sent.at(-1)).toEqual({
+      t: 'welcome',
+      sessionId: 's1',
+      seq: 1,
+      serverTime: expect.any(Number),
+    });
   });
 
   it('ignores a stale detach from a replaced connection', () => {
