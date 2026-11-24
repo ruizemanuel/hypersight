@@ -101,6 +101,8 @@ export function buildIntentContext(
       short: m.short,
       sides: m.sides,
       aliases: aliasesFor(m),
+      ...(m.range ? { range: m.range } : {}),
+      ...(m.key.startsWith('rq:') ? { bucket: true } : {}),
     })),
   };
 }

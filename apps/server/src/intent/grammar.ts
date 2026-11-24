@@ -5,7 +5,16 @@ export type IntentContext = {
   perpCoins: string[];
   positions: { coin: string }[];
   outcomePositions: { marketKey: string; sideIndex: 0 | 1 }[];
-  markets: { key: string; short: string; sides: [string, string]; aliases: string[] }[];
+  markets: {
+    key: string;
+    short: string;
+    sides: [string, string];
+    aliases: string[];
+    /** Price markets: YES pays when the underlying ends ≥ lo and < hi (either bound may be open). */
+    range?: { lo?: number; hi?: number };
+    /** Price-bucket member: only named with a bucket word or one of its thresholds. */
+    bucket?: boolean;
+  }[];
 };
 
 type Market = IntentContext['markets'][number];
@@ -47,38 +56,93 @@ const SCALES: Record<string, number> = { hundred: 100, thousand: 1000 };
 const isNumberWord = (w: string | undefined): boolean =>
   w !== undefined && (w in UNITS || w in TENS || w in SCALES);
 const isNumeric = (w: string | undefined): boolean => w !== undefined && /^\d+(\.\d+)?$/.test(w);
+/** A run of number words that is not one English cardinal ("one fifty", "twenty nine fifty"). */
+const BROKEN = '~';
+const isBroken = (w: string): boolean => w.startsWith(BROKEN);
 
-/** Folds spoken numbers into digits: `twenty five` → `25`, `a hundred` → `100`. */
+type Run = { value: number; end: number };
+
+/**
+ * Reads one English cardinal starting at `start`, stopping before any word that cannot extend it:
+ * a unit or teen only before hundred/thousand, tens only after a hundred/thousand or at the start.
+ */
+function readCardinal(tokens: string[], start: number): Run {
+  let total = 0;
+  let current = 0;
+  let segHundred = false;
+  let last: 'start' | 'unit' | 'teen' | 'tens' | 'tensUnit' | 'hundred' | 'thousand' = 'start';
+  let j = start;
+  if (tokens[j] === 'a' && (tokens[j + 1] as string) in SCALES) {
+    current = 1;
+    last = 'unit';
+    j++;
+  }
+  const open = () => last === 'start' || last === 'hundred' || last === 'thousand';
+  for (; j < tokens.length; j++) {
+    const t = tokens[j] as string;
+    if (t === 'and' && (last === 'hundred' || last === 'thousand')) {
+      // "two thousand and five" joins; "sixty thousand and sixty two thousand" does not.
+      let k = j + 1;
+      while (
+        k < tokens.length &&
+        k <= j + 2 &&
+        ((tokens[k] as string) in UNITS || (tokens[k] as string) in TENS)
+      )
+        k++;
+      if (k === j + 1 || (tokens[k] as string) in SCALES) break;
+      continue;
+    }
+    if (t in UNITS) {
+      const n = UNITS[t] as number;
+      if (n >= 10) {
+        if (!open()) break;
+        last = 'teen';
+      } else if (last === 'tens' && n > 0) last = 'tensUnit';
+      else if (open()) last = 'unit';
+      else break;
+      current += n;
+    } else if (t in TENS) {
+      if (!open()) break;
+      current += TENS[t] as number;
+      last = 'tens';
+    } else if (t === 'hundred') {
+      if (last === 'start') current = 100;
+      else if (segHundred || current === 0) break;
+      else current *= 100;
+      segHundred = true;
+      last = 'hundred';
+    } else if (t === 'thousand') {
+      if (total > 0) break;
+      total = (last === 'start' ? 1 : current) * 1000;
+      current = 0;
+      segHundred = false;
+      last = 'thousand';
+    } else break;
+  }
+  return { value: total + current, end: j };
+}
+
+/**
+ * Folds spoken numbers into digits: `twenty five` → `25`, `a hundred` → `100`. Number words that
+ * do not form one cardinal become a single `~` token carrying the pieces (`one fifty` → `~1-50`).
+ */
 function mergeNumberWords(tokens: string[]): string[] {
   const out: string[] = [];
   for (let i = 0; i < tokens.length; i++) {
     const w = tokens[i] as string;
-    const startsRun =
-      isNumberWord(w) ||
-      (w === 'a' && tokens[i + 1] !== undefined && (tokens[i + 1] as string) in SCALES);
+    const startsRun = isNumberWord(w) || (w === 'a' && (tokens[i + 1] as string) in SCALES);
     if (!startsRun) {
       out.push(w);
       continue;
     }
-    let total = 0;
-    let current = 0;
+    const pieces: number[] = [];
     let j = i;
-    if (w === 'a') {
-      current = 1;
-      j++;
-    }
-    for (; j < tokens.length; j++) {
-      const t = tokens[j] as string;
-      if (t in UNITS) current += UNITS[t] as number;
-      else if (t in TENS) current += TENS[t] as number;
-      else if (t === 'hundred') current = (current || 1) * 100;
-      else if (t === 'thousand') {
-        total += (current || 1) * 1000;
-        current = 0;
-      } else if (t === 'and' && isNumberWord(tokens[j + 1])) continue;
-      else break;
-    }
-    out.push(String(total + current));
+    do {
+      const run = readCardinal(tokens, j);
+      pieces.push(run.value);
+      j = run.end;
+    } while (isNumberWord(tokens[j]) && tokens[j - 1] !== 'and');
+    out.push(pieces.length === 1 ? String(pieces[0]) : BROKEN + pieces.join('-'));
     i = j - 1;
   }
   return out;
@@ -90,6 +154,7 @@ export function tokenize(text: string): string[] {
   s = s.replace(/(\d),(?=\d{3}\b)/g, '$1');
   s = s.replace(/\$\s*(\d+(?:\.\d+)?)/g, '$1 dollars ');
   s = s.replace(/(\d+(?:\.\d+)?)\s*%/g, '$1 percent ');
+  s = s.replace(/\bper\s+cent\b/g, 'percent');
   s = s.replace(/['’]/g, '');
   s = s.replace(/(\d)\.(?=\d)/g, '$1§');
   s = s.replace(/&/g, ' and ');
@@ -97,179 +162,388 @@ export function tokenize(text: string): string[] {
   return mergeNumberWords(s.split(/\s+/).filter(Boolean));
 }
 
-/** First number in a phrase: digits, `$20`, `20 bucks`, `twenty five`, `a hundred`. */
+/** First number in a phrase: digits, `$20`, `20 bucks`, `twenty five`, `a hundred`; null if unclear. */
 export function parseNumberWords(s: string): number | null {
-  const t = tokenize(s).find(isNumeric);
-  return t === undefined ? null : Number(t);
+  const t = tokenize(s).find((w) => isNumeric(w) || isBroken(w));
+  return t === undefined || isBroken(t) ? null : Number(t);
 }
 
-/** Leverage like `3x`, `3 x`, `3 times`, `leverage 3`; returns the value and the token indexes used. */
-function leverageOf(tokens: string[]): { value: number; used: Set<number> } | null {
+/**
+ * Every number the user could have meant, for checking an LLM intent: plain numbers, `3x`, and the
+ * colloquial readings of broken runs (`one fifty` → 1, 50, 150, 1.5; `twenty nine fifty` → 2950).
+ */
+export function heardNumbers(text: string): number[] {
+  const out = new Set<number>();
+  for (const t of tokenize(text)) {
+    if (isNumeric(t)) out.add(Number(t));
+    const lev = /^(\d+)x$/.exec(t);
+    if (lev) out.add(Number(lev[1]));
+    if (isBroken(t)) {
+      const pieces = t.slice(BROKEN.length).split('-').map(Number);
+      for (const p of pieces) out.add(p);
+      const [head, ...rest] = pieces as [number, ...number[]];
+      if (rest.length > 0 && rest.every((p) => p >= 10 && p <= 99)) {
+        out.add(Number(`${head}${rest.join('')}`));
+        if (rest.length === 1) out.add(head + (rest[0] as number) / 100);
+      }
+    }
+  }
+  return [...out];
+}
+
+const CURRENCY = new Set(['dollars', 'dollar', 'bucks', 'usd']);
+const FRACTION_WORDS = new Set([
+  'half',
+  'halves',
+  'quarter',
+  'quarters',
+  'third',
+  'thirds',
+  'percent',
+]);
+const NEGATIONS = new Set([
+  'dont',
+  'not',
+  'never',
+  'cant',
+  'wont',
+  'doesnt',
+  'didnt',
+  'shouldnt',
+  'wouldnt',
+  'isnt',
+]);
+const VERBS: Record<string, string> = {
+  close: 'close',
+  long: 'open',
+  short: 'open',
+  buy: 'buy',
+  sell: 'sell',
+  dump: 'sell',
+  stop: 'stop',
+  cancel: 'cancel',
+  watch: 'watch',
+  follow: 'watch',
+  track: 'watch',
+};
+const QUERY_WORDS = new Set([
+  'odds',
+  'chance',
+  'chances',
+  'probability',
+  'pnl',
+  'profit',
+  'balance',
+  'equity',
+  'price',
+]);
+/** Words a bare "close half" may contain; anything else may be an asset we did not recognise. */
+const CLOSE_FILLER = new Set([
+  'close',
+  'out',
+  'of',
+  'my',
+  'the',
+  'a',
+  'an',
+  'all',
+  'half',
+  'quarter',
+  'quarters',
+  'third',
+  'thirds',
+  'percent',
+  'position',
+  'positions',
+  'trade',
+  'it',
+  'please',
+  'now',
+  'entire',
+  'whole',
+  'full',
+  'take',
+  'profit',
+  'profits',
+  'on',
+  'long',
+  'short',
+  'everything',
+  'that',
+  'this',
+  'up',
+]);
+
+const currencyAfter = (tokens: string[], i: number): boolean =>
+  CURRENCY.has(tokens[i + 1] as string);
+
+/** Indexes of number tokens, and the slot that claimed each one. */
+class Numbers {
+  readonly all: number[];
+  private readonly used = new Set<number>();
+  constructor(private readonly tokens: string[]) {
+    this.all = tokens.flatMap((t, i) => (isNumeric(t) ? [i] : []));
+  }
+  use(i: number): void {
+    this.used.add(i);
+  }
+  free(): number[] {
+    return this.all.filter((i) => !this.used.has(i));
+  }
+  value(i: number): number {
+    return Number(this.tokens[i]);
+  }
+  /** True when every number the user said filled a slot. */
+  allUsed(): boolean {
+    return this.free().length === 0;
+  }
+}
+
+/** Leverage like `3x`, `3 x`, `3 times`, `leverage 3`, `5 leverage`; 'ambiguous' if two readings. */
+function leverageOf(tokens: string[], nums: Numbers): number | null | 'ambiguous' {
+  const found: { value: number; index?: number }[] = [];
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i] as string;
     const m = /^(\d+)x$/.exec(t);
-    if (m) return { value: Number(m[1]), used: new Set([i]) };
-    if (isNumeric(t) && (tokens[i + 1] === 'x' || tokens[i + 1] === 'times')) {
-      return { value: Number(t), used: new Set([i, i + 1]) };
-    }
-    if (t === 'leverage' && isNumeric(tokens[i + 1])) {
-      return { value: Number(tokens[i + 1]), used: new Set([i, i + 1]) };
+    if (m) found.push({ value: Number(m[1]) });
+    else if (isNumeric(t) && (tokens[i + 1] === 'x' || tokens[i + 1] === 'times')) {
+      found.push({ value: Number(t), index: i });
+    } else if (t === 'leverage') {
+      const j = tokens[i + 1] === 'of' ? i + 2 : i + 1;
+      if (isNumeric(tokens[j]) && !currencyAfter(tokens, j))
+        found.push({ value: Number(tokens[j]), index: j });
+      if (isNumeric(tokens[i - 1]) && !currencyAfter(tokens, i - 1)) {
+        found.push({ value: Number(tokens[i - 1]), index: i - 1 });
+      }
     }
   }
-  return null;
+  if (found.length === 0) return null;
+  if (found.length > 1) return 'ambiguous';
+  const f = found[0] as { value: number; index?: number };
+  if (f.index !== undefined) nums.use(f.index);
+  return f.value;
 }
 
-/** USD amount: a number followed by dollars/bucks/usd wins, else the first free number. */
-function amountOf(tokens: string[], exclude: Set<number> = new Set()): number | null {
-  let first: number | null = null;
-  for (let i = 0; i < tokens.length; i++) {
-    if (exclude.has(i) || !isNumeric(tokens[i])) continue;
-    if (tokens[i + 1] === 'percent') continue;
-    const n = Number(tokens[i]);
-    const unit = tokens[i + 1];
-    if (unit === 'dollars' || unit === 'dollar' || unit === 'bucks' || unit === 'usd') return n;
-    if (first === null) first = n;
-  }
-  return first;
+/** USD amount: the one free number left (a currency word after it is optional). */
+function amountOf(nums: Numbers): number | null {
+  const free = nums.free();
+  if (free.length !== 1) return null;
+  const i = free[0] as number;
+  nums.use(i);
+  return nums.value(i);
 }
 
-/** `half` 0.5, `quarter` 0.25, `third` 0.333, `all`/`everything` 1, `N percent` N/100; default 1. */
-function fractionOf(tokens: string[]): number | null {
-  const pct = tokens.indexOf('percent');
-  if (pct > 0 && isNumeric(tokens[pct - 1])) {
-    const n = Number(tokens[pct - 1]);
+/** `half`, `a quarter`, `three quarters`, `two thirds`, `N percent`; 1 when no fraction is said. */
+function fractionOf(tokens: string[], nums: Numbers): number | null {
+  const at = tokens.flatMap((t, i) => (FRACTION_WORDS.has(t) ? [i] : []));
+  if (at.length === 0) return 1;
+  if (at.length > 1) return null;
+  const i = at[0] as number;
+  const word = tokens[i] as string;
+  const prev = isNumeric(tokens[i - 1]) ? i - 1 : -1;
+  if (word === 'percent') {
+    if (prev < 0) return null;
+    nums.use(prev);
+    const n = nums.value(prev);
     return n > 0 && n <= 100 ? n / 100 : null;
   }
-  if (tokens.includes('half')) return 0.5;
-  if (tokens.includes('quarter')) return 0.25;
-  if (tokens.includes('third')) return 0.333;
-  return 1;
+  const denominator = word.startsWith('half') ? 2 : word.startsWith('quarter') ? 4 : 3;
+  let count = 1;
+  if (prev >= 0) {
+    nums.use(prev);
+    count = nums.value(prev);
+  }
+  const f = Math.round((count / denominator) * 1000) / 1000;
+  return f > 0 && f <= 1 ? f : null;
 }
 
-function coinOf(tokens: string[], ctx: IntentContext): string | null {
+function coinsOf(tokens: string[], ctx: IntentContext): string[] {
+  const out = new Set<string>();
   for (const t of tokens) {
     const coin = coinFromToken(t, ctx.perpCoins);
-    if (coin) return coin;
+    if (coin) out.add(coin);
   }
-  return null;
+  return [...out];
 }
 
-/** Best market by alias hits; a tie means ambiguous (null). */
-function marketOf(tokens: string[], ctx: IntentContext): Market | null {
+const ABOVE = new Set(['above', 'over', 'higher']);
+const BELOW = new Set(['below', 'under', 'lower']);
+const BETWEEN = new Set(['between', 'range']);
+
+/** Best market by alias hits plus price-range words and thresholds; a tie means ambiguous (null). */
+function marketOf(tokens: string[], ctx: IntentContext, nums: Numbers): Market | null {
   const words = new Set(tokens);
-  let best: Market | null = null;
+  const said = (set: Set<string>) => tokens.some((t) => set.has(t));
+  const rangeNums = nums.all.filter((i) => !currencyAfter(tokens, i));
+  let best: { m: Market; hits: number[] } | null = null;
   let bestScore = 0;
   let tie = false;
   for (const m of ctx.markets) {
-    const score = new Set(m.aliases.filter((a) => words.has(a))).size;
+    const aliasScore = new Set(m.aliases.filter((a) => words.has(a))).size;
+    let score = aliasScore;
+    const hits: number[] = [];
+    if (m.range) {
+      const { lo, hi } = m.range;
+      for (const i of rangeNums) {
+        const n = nums.value(i);
+        if (n === lo || n === hi) hits.push(i);
+      }
+      const direction =
+        lo !== undefined && hi !== undefined
+          ? said(BETWEEN)
+          : lo !== undefined
+            ? said(ABOVE)
+            : said(BELOW);
+      if (m.bucket && !direction && hits.length === 0) continue;
+      if (aliasScore === 0 && hits.length === 0) continue;
+      score += hits.length + (direction ? 1 : 0);
+    }
     if (score > bestScore) {
-      best = m;
+      best = { m, hits };
       bestScore = score;
       tie = false;
     } else if (score === bestScore && score > 0) {
       tie = true;
     }
   }
-  return bestScore > 0 && !tie ? best : null;
+  if (!best || bestScore === 0 || tie) return null;
+  for (const i of best.hits) nums.use(i);
+  return best.m;
 }
 
+const isYesNo = (m: Market) =>
+  m.sides[0].toLowerCase() === 'yes' && m.sides[1].toLowerCase() === 'no';
+
+/** YES/NO on yes/no markets; otherwise exactly one side label, and no stray yes/no. */
 function sideOf(tokens: string[], market: Market): 0 | 1 | null {
-  const words = new Set(tokens);
-  const labelWords = market.sides.map((s) => s.toLowerCase().split(/\s+/));
-  // Longer labels first so "no change" is not read as "change".
-  const order = [0, 1].sort((a, b) => (labelWords[b]?.length ?? 0) - (labelWords[a]?.length ?? 0));
-  for (const i of order) {
-    const lw = labelWords[i] as string[];
-    if (lw.join(' ') === 'yes' || lw.join(' ') === 'no') continue;
-    if (lw.every((w) => words.has(w))) return i as 0 | 1;
+  if (isYesNo(market)) {
+    const yes = tokens.includes('yes');
+    const no = tokens.includes('no');
+    return yes === no ? null : yes ? 0 : 1;
   }
-  if (words.has('yes')) return 0;
-  if (words.has('no')) return 1;
-  return null;
+  const remaining = [...tokens];
+  const labels = market.sides.map((s) => tokenize(s));
+  // Longer labels first so "no change" is not also read as "change".
+  const order = [0, 1].sort((a, b) => (labels[b]?.length ?? 0) - (labels[a]?.length ?? 0));
+  let side: 0 | 1 | null = null;
+  for (const i of order) {
+    const label = labels[i] as string[];
+    const at = label.map((w) => remaining.indexOf(w));
+    if (label.length === 0 || at.some((k) => k < 0)) continue;
+    if (side !== null) return null;
+    side = i as 0 | 1;
+    for (const k of at) remaining[k] = '';
+  }
+  if (remaining.includes('yes') || remaining.includes('no')) return null;
+  return side;
 }
 
 /**
  * Deterministic parser for the short phrases the HUD suggests. Returns null when unsure, so the
- * caller can fall back to the LLM; it never guesses an amount, side or market.
+ * caller can fall back to the LLM; it never guesses an amount, side or market: every number must
+ * fill exactly one slot, one action only, no negation.
  */
 export function parseIntentFast(text: string, ctx: IntentContext): Intent | null {
   const tokens = tokenize(text);
+  if (tokens.length === 0) return null;
+  if (tokens.some(isBroken) || tokens.some((t) => NEGATIONS.has(t))) return null;
   const has = (...ws: string[]) => ws.some((w) => tokens.includes(w));
   // "take profit on half my eth" closes a position; it is not a PnL question.
   const takeProfit = tokens.some(
     (t, i) => t === 'take' && (tokens[i + 1] === 'profit' || tokens[i + 1] === 'profits'),
   );
-  if (tokens.length === 0) return null;
+  const verbs = new Set(tokens.flatMap((t) => (t in VERBS ? [VERBS[t] as string] : [])));
+  if (takeProfit) verbs.add('close');
+  // "close my eth long" — long/short describe the position being closed.
+  if (verbs.has('close')) verbs.delete('open');
+  if (verbs.size > 1) return null;
+  const verb = [...verbs][0];
+  const query = tokens.some((t) => QUERY_WORDS.has(t)) && !takeProfit;
+  if (verb && query) return null;
+  const fractionSaid = tokens.some((t) => FRACTION_WORDS.has(t));
+  if (fractionSaid && verb !== 'close' && verb !== 'sell') return null;
 
-  if (has('cancel') && has('all', 'orders', 'everything')) return { kind: 'cancelAll' };
+  const nums = new Numbers(tokens);
+  const done = (intent: Intent): Intent | null => (nums.allUsed() ? intent : null);
+  const coins = coinsOf(tokens, ctx);
+  if (coins.length > 1) return null;
+  const coin = coins[0] ?? null;
 
-  if (has('odds', 'chance', 'chances', 'probability')) {
-    const m = marketOf(tokens, ctx);
-    return m ? { kind: 'query', topic: 'odds', marketKey: m.key } : null;
-  }
-  if (!takeProfit && (has('pnl', 'profit') || (has('p') && has('l')))) {
-    return { kind: 'query', topic: 'pnl' };
-  }
-  if (has('balance', 'equity')) return { kind: 'query', topic: 'balance' };
-  if (has('price')) {
-    const coin = coinOf(tokens, ctx);
-    return coin ? { kind: 'query', topic: 'price', coin } : null;
-  }
-
-  if (has('stop')) {
-    const coin = coinOf(tokens, ctx);
-    const px = amountOf(tokens);
-    return coin && px !== null && px > 0 ? { kind: 'setStop', coin, triggerPx: px } : null;
-  }
-
-  if (has('close') || takeProfit) {
-    const fraction = fractionOf(tokens);
-    if (fraction === null) return null;
-    let coin = coinOf(tokens, ctx);
-    if (!coin && ctx.positions.length === 1) coin = (ctx.positions[0] as { coin: string }).coin;
-    return coin ? { kind: 'closePerp', coin, fraction } : null;
-  }
-
-  if (has('long', 'short')) {
-    const coin = coinOf(tokens, ctx);
-    const lev = leverageOf(tokens);
-    const usd = amountOf(tokens, lev?.used);
-    if (!coin || usd === null || usd <= 0) return null;
-    const side = has('long') ? 'long' : 'short';
-    if (lev && (lev.value < 1 || lev.value > 50)) return null;
-    return lev
-      ? { kind: 'openPerp', coin, side, usd, leverage: lev.value }
-      : { kind: 'openPerp', coin, side, usd };
-  }
-
-  if (has('buy')) {
-    const m = marketOf(tokens, ctx);
-    if (!m) return null;
-    const sideIndex = sideOf(tokens, m);
-    const usd = amountOf(tokens);
-    if (sideIndex === null || usd === null || usd <= 0) return null;
-    return { kind: 'buyOutcome', marketKey: m.key, sideIndex, usd };
-  }
-
-  if (has('sell', 'dump')) {
-    const m = marketOf(tokens, ctx);
-    if (!m) return null;
-    const fraction = fractionOf(tokens);
-    if (fraction === null) return null;
-    let sideIndex = sideOf(tokens, m);
-    if (sideIndex === null) {
-      const held = ctx.outcomePositions.filter((p) => p.marketKey === m.key);
-      if (held.length === 1) sideIndex = (held[0] as { sideIndex: 0 | 1 }).sideIndex;
+  if (!verb) {
+    if (has('odds', 'chance', 'chances', 'probability')) {
+      const m = marketOf(tokens, ctx, nums);
+      return m ? done({ kind: 'query', topic: 'odds', marketKey: m.key }) : null;
     }
-    return sideIndex === null
-      ? null
-      : { kind: 'sellOutcome', marketKey: m.key, sideIndex, fraction };
+    if (has('pnl', 'profit') || (has('p') && has('l')))
+      return done({ kind: 'query', topic: 'pnl' });
+    if (has('balance', 'equity')) return done({ kind: 'query', topic: 'balance' });
+    if (has('price')) return coin ? done({ kind: 'query', topic: 'price', coin }) : null;
+    return null;
   }
 
-  if (has('watch', 'follow', 'track')) {
-    const m = marketOf(tokens, ctx);
-    return m ? { kind: 'watch', marketKey: m.key } : null;
-  }
+  switch (verb) {
+    case 'cancel':
+      return has('all', 'orders', 'everything') ? done({ kind: 'cancelAll' }) : null;
 
+    case 'stop': {
+      const px = amountOf(nums);
+      return coin && px !== null && px > 0 ? done({ kind: 'setStop', coin, triggerPx: px }) : null;
+    }
+
+    case 'close': {
+      const fraction = fractionOf(tokens, nums);
+      if (fraction === null) return null;
+      let target = coin;
+      const onlyFiller = tokens.every((t) => CLOSE_FILLER.has(t) || isNumeric(t));
+      if (!target && ctx.positions.length === 1 && onlyFiller) {
+        target = (ctx.positions[0] as { coin: string }).coin;
+      }
+      return target ? done({ kind: 'closePerp', coin: target, fraction }) : null;
+    }
+
+    case 'open': {
+      if (has('long') && has('short')) return null;
+      const lev = leverageOf(tokens, nums);
+      if (lev === 'ambiguous') return null;
+      const usd = amountOf(nums);
+      if (!coin || usd === null || usd <= 0) return null;
+      if (lev !== null && (lev < 1 || lev > 50)) return null;
+      const side = has('long') ? 'long' : 'short';
+      return done(
+        lev !== null
+          ? { kind: 'openPerp', coin, side, usd, leverage: lev }
+          : { kind: 'openPerp', coin, side, usd },
+      );
+    }
+
+    case 'buy': {
+      const m = marketOf(tokens, ctx, nums);
+      if (!m) return null;
+      const sideIndex = sideOf(tokens, m);
+      const usd = amountOf(nums);
+      if (sideIndex === null || usd === null || usd <= 0) return null;
+      return done({ kind: 'buyOutcome', marketKey: m.key, sideIndex, usd });
+    }
+
+    case 'sell': {
+      const m = marketOf(tokens, ctx, nums);
+      if (!m) return null;
+      const fraction = fractionOf(tokens, nums);
+      if (fraction === null) return null;
+      let sideIndex = sideOf(tokens, m);
+      if (sideIndex === null && !has('yes', 'no')) {
+        const held = ctx.outcomePositions.filter((p) => p.marketKey === m.key);
+        if (held.length === 1) sideIndex = (held[0] as { sideIndex: 0 | 1 }).sideIndex;
+      }
+      return sideIndex === null
+        ? null
+        : done({ kind: 'sellOutcome', marketKey: m.key, sideIndex, fraction });
+    }
+
+    case 'watch': {
+      const m = marketOf(tokens, ctx, nums);
+      return m ? done({ kind: 'watch', marketKey: m.key }) : null;
+    }
+  }
   return null;
 }

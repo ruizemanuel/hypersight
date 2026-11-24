@@ -46,6 +46,8 @@ export type OutcomeMarket = {
   expiresAt?: number;
   category?: string;
   recurring?: { underlying: string; period: string };
+  /** Price markets: YES pays when the underlying ends >= lo and < hi (an open bound is absent). */
+  range?: { lo?: number; hi?: number };
 };
 
 const SHORT_MAX = 28;
@@ -186,6 +188,7 @@ class Builder {
       expiresAt,
       category: 'price',
       recurring: { underlying, period },
+      range: { lo: Number(targetPrice) },
     };
   }
 
@@ -196,7 +199,9 @@ class Builder {
     q: QuestionSpecLike,
   ): OutcomeMarket | null {
     const qkv = parseKv(q.description);
-    const [lower, upper] = (qkv.priceThresholds ?? '').split(',').map(fmtNum);
+    const thresholds = (qkv.priceThresholds ?? '').split(',');
+    const [lower, upper] = thresholds.map(fmtNum);
+    const [lo, hi] = thresholds.map(Number) as [number, number];
     const expiresAt = parseUtc(qkv.expiry);
     const { underlying, period } = qkv;
     if (!underlying || !period || !lower || !upper || expiresAt === undefined) return null;
@@ -220,6 +225,7 @@ class Builder {
       sides: ['Yes', 'No'],
       expiresAt,
       category: 'price',
+      range: kv.index === '0' ? { hi: lo } : kv.index === '1' ? { lo, hi } : { lo: hi },
     };
   }
 

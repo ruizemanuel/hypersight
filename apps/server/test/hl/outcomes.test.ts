@@ -140,6 +140,7 @@ describe('buildCatalogue', () => {
       expiresAt: Date.UTC(2026, 10, 20, 3, 0),
       category: 'price',
       recurring: { underlying: 'BTC', period: '1d' },
+      range: { lo: 61509 },
     });
     expect(byOutcome(27122)?.short).toBe('ETH > 1,756.7 · daily');
   });
