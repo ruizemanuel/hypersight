@@ -21,6 +21,8 @@ export type AlertEvent = {
   action?: Intent;
   /** Cooldown key when one rule can raise several alerts (one per position); else the rule id. */
   key?: string;
+  /** Shown before other held alerts (liquidation distance). */
+  urgent?: boolean;
 };
 
 export type RuleContext = {
@@ -102,6 +104,25 @@ function liqDistancePct(p: PerpPosition): number | null {
 /** Recurring market titles drop the period: `BTC > 61,509 · daily` → `BTC > 61,509`. */
 const marketLabel = (m: OutcomeMarket) => m.short.replace(/ · (daily|hourly|weekly)$/, '');
 
+/** Every position closer to liquidation than the rule allows, right now (one warning per coin). */
+export function liqWarnings(rule: AlertRule, snap: Snapshot): AlertEvent[] {
+  const pct = num(rule.params.pct);
+  if (!rule.enabled || rule.kind !== 'liqDistance' || !Number.isFinite(pct)) return [];
+  return snap.view.perps.flatMap((pos) => {
+    const b = liqDistancePct(pos);
+    if (b === null || b >= pct) return [];
+    return [
+      {
+        ...withAction(rule, `${pos.coin} ${Math.round(b)}% from liquidation`, [
+          `mark ${fmtPrice(pos.markPx)} · liq ${fmtPrice(pos.liqPx as number)}`,
+        ]),
+        key: `${rule.id}:${pos.coin}`,
+        urgent: true,
+      },
+    ];
+  });
+}
+
 /**
  * The odds a move is measured from: the price at the start of the window (the last change at or
  * before it — history only stores changes), or the oldest known price when history is younger.
@@ -136,21 +157,12 @@ export function evaluateRule(
   if (rule.kind === 'liqDistance') {
     const pct = num(p.pct);
     if (!Number.isFinite(pct)) return [];
-    const events: AlertEvent[] = [];
-    for (const pos of next.view.perps) {
-      const b = liqDistancePct(pos);
-      if (b === null || b >= pct) continue;
-      const before = prev?.view.perps.find((x) => x.coin === pos.coin);
+    return liqWarnings(rule, next).filter((ev) => {
+      const coin = ev.key?.slice(rule.id.length + 1);
+      const before = prev?.view.perps.find((x) => x.coin === coin);
       const a = before ? liqDistancePct(before) : null;
-      if (a !== null && a < pct) continue;
-      events.push({
-        ...withAction(rule, `${pos.coin} ${Math.round(b)}% from liquidation`, [
-          `mark ${fmtPrice(pos.markPx)} · liq ${fmtPrice(pos.liqPx as number)}`,
-        ]),
-        key: `${rule.id}:${pos.coin}`,
-      });
-    }
-    return events;
+      return a === null || a >= pct;
+    });
   }
   if (!prev) return [];
   const ev = crossing(rule, prev, next, now, ctx);

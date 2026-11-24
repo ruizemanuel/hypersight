@@ -185,7 +185,7 @@ describe('AlertEngine — odds and liquidation over time', () => {
       if (over.perps) current = { ...view, perps: over.perps };
       stream.emit('view', current);
     };
-    return { pushed, clock, tick };
+    return { engine, pushed, clock, tick };
   }
 
   const pos = (coin: string, markPx: number, liqPx: number): PerpPosition => ({
@@ -236,6 +236,16 @@ describe('AlertEngine — odds and liquidation over time', () => {
       'ETH 7% from liquidation',
       'BTC 8% from liquidation',
     ]);
+  });
+
+  it('keeps the liquidation warnings that still apply, for a device that connects later', () => {
+    const s = live([
+      { id: 'liq', kind: 'liqDistance', params: { pct: 10 }, cooldownMs: 600_000, enabled: true },
+    ]);
+    s.tick({ perps: [pos('ETH', 2700, 2500), pos('BTC', 90_000, 80_000)] });
+    expect(s.engine.activeWarnings().map((e) => e.title)).toEqual(['ETH 7% from liquidation']);
+    s.tick({ perps: [pos('ETH', 3000, 2500), pos('BTC', 90_000, 80_000)] });
+    expect(s.engine.activeWarnings()).toEqual([]);
   });
 
   it('warns at start-up about a position already close to liquidation', () => {

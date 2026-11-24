@@ -7,6 +7,7 @@ import {
   evaluateFill,
   evaluateRule,
   type FillLike,
+  liqWarnings,
   type OddsHistory,
   type RuleContext,
   type Snapshot,
@@ -44,6 +45,7 @@ export class AlertEngine {
   private prev: Snapshot | null = null;
   private readonly odds: OddsHistory = new Map();
   private readonly lastFired = new Map<string, number>();
+  private active: AlertEvent[] = [];
   private readonly now: () => number;
   private readonly ctx: RuleContext;
   private readonly onView = () => this.guard('view', () => this.evaluateSnapshot());
@@ -65,6 +67,11 @@ export class AlertEngine {
     this.deps.stream.on('fill', this.onFill);
   }
 
+  /** Liquidation warnings that still apply (replayed to a device that connects after they fired). */
+  activeWarnings(): AlertEvent[] {
+    return [...this.active];
+  }
+
   stop(): void {
     this.deps.stream.off('view', this.onView);
     this.deps.stream.off('outcomeMeta', this.onView);
@@ -83,6 +90,7 @@ export class AlertEngine {
     for (const rule of rules) {
       for (const ev of evaluateRule(rule, this.prev, next, now, this.ctx)) this.fire(rule, ev, now);
     }
+    this.active = rules.flatMap((r) => liqWarnings(r, next));
     this.recordOdds(rules, next.mids, now);
     this.prev = { ...next, oddsHistory: this.odds };
   }

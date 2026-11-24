@@ -503,6 +503,33 @@ describe('SessionController — held alerts are never stranded', () => {
     expect(s.session.overlay()).toMatchObject({ kind: 'result', title: 'Filled' });
   });
 
+  it('queues an alert behind one already on screen instead of replacing it', async () => {
+    const s = setup();
+    s.controller.alert(s.session, takeHalf);
+    s.controller.alert(s.session, { ruleId: 'btc', title: 'BTC above 62,000', lines: [] });
+    expect(s.session.overlay()).toMatchObject({ title: 'ETH +5.5%' });
+    await s.controller.onClientMsg(s.session, { t: 'dismiss' });
+    expect(s.session.overlay()).toMatchObject({ title: 'BTC above 62,000' });
+    await s.controller.onClientMsg(s.session, { t: 'dismiss' });
+    expect(s.session.overlay()).toBeNull();
+  });
+
+  it('shows liquidation warnings first, one per coin, when the user is free', async () => {
+    const s = setup();
+    await s.controller.onTranscript(s.session, 'close half my eth', {});
+    const p = confirmOf(s.overlays().at(-1));
+    s.controller.alert(s.session, takeHalf);
+    s.controller.alert(s.session, { ruleId: 'liq', key: 'liq:ETH', urgent: true, title: 'ETH 7% from liquidation', lines: [] });
+    s.controller.alert(s.session, { ruleId: 'liq', key: 'liq:SOL', urgent: true, title: 'SOL 8% from liquidation', lines: [] });
+    await s.controller.onClientMsg(s.session, { t: 'cancel', proposalId: p.id });
+    const titles: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      titles.push((s.session.overlay() as { title: string }).title);
+      await s.controller.onClientMsg(s.session, { t: 'dismiss' });
+    }
+    expect(titles).toEqual(['ETH 7% from liquidation', 'SOL 8% from liquidation', 'ETH +5.5%']);
+  });
+
   it('drops a held alert that is too old to matter once the user is free', async () => {
     const s = setup();
     s.session.send({ t: 'overlay', overlay: { kind: 'thinking' } });

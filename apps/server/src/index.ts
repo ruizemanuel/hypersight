@@ -252,6 +252,8 @@ function main(): void {
     onCreate: (session) => {
       session.on('attach', () => publisher.publishTo(session));
       sessionController.attach(session);
+      // A liquidation warning that fired before this device connected still applies: show it.
+      for (const ev of alerts?.activeWarnings() ?? []) sessionController.alert(session, ev);
     },
     devices: repos.devices,
   });

@@ -44,8 +44,8 @@ type DeviceState = {
   oddsFocus?: { marketKey: string; at: number };
   /** Generation when the current utterance ended: a dismiss during speech-to-text drops it. */
   utterance?: number;
-  /** An alert that arrived while the user was busy (confirm, listening, thinking). */
-  pendingAlert?: { overlay: Overlay; at: number };
+  /** Alerts waiting for the user (behind a confirm, a voice step or another alert), urgent first. */
+  pendingAlerts: { overlay: Overlay; at: number; urgent: boolean }[];
   /** Shows the held alert when the confirm it waits behind expires unanswered. */
   releaseTimer?: ReturnType<typeof setTimeout>;
 };
@@ -128,8 +128,14 @@ export class SessionController {
           }
         : {}),
     };
-    if (this.busy(session.overlay())) {
-      dev.pendingAlert = { overlay, at: this.now() };
+    // Never covers a confirm, a voice step or another alert: it waits its turn (urgent first).
+    const current = session.overlay();
+    if (this.busy(current) || current?.kind === 'alert') {
+      const held = { overlay, at: this.now(), urgent: ev.urgent === true };
+      const at = held.urgent
+        ? dev.pendingAlerts.findIndex((a) => !a.urgent)
+        : dev.pendingAlerts.length;
+      dev.pendingAlerts.splice(at < 0 ? dev.pendingAlerts.length : at, 0, held);
       this.armRelease(session, dev);
       return;
     }
@@ -150,7 +156,7 @@ export class SessionController {
     if (dev.releaseTimer) clearTimeout(dev.releaseTimer);
     delete dev.releaseTimer;
     const o = session.overlay();
-    if (!dev.pendingAlert || o?.kind !== 'confirm') return;
+    if (dev.pendingAlerts.length === 0 || o?.kind !== 'confirm') return;
     const id = o.proposal.id;
     const delay = Math.max(0, o.proposal.expiresAt - this.now()) + RELEASE_GRACE_MS;
     dev.releaseTimer = setTimeout(() => {
@@ -420,11 +426,10 @@ export class SessionController {
 
   private show(session: Session, overlay: Overlay | null): void {
     const dev = this.device(session);
-    if (overlay === null && dev.pendingAlert) {
-      const pending = dev.pendingAlert;
-      delete dev.pendingAlert;
-      if (this.now() - pending.at <= PENDING_ALERT_MAX_MS) {
-        session.send({ t: 'overlay', overlay: pending.overlay });
+    if (overlay === null) {
+      for (let next = dev.pendingAlerts.shift(); next; next = dev.pendingAlerts.shift()) {
+        if (this.now() - next.at > PENDING_ALERT_MAX_MS) continue;
+        session.send({ t: 'overlay', overlay: next.overlay });
         this.armRelease(session, dev);
         return;
       }
@@ -436,7 +441,7 @@ export class SessionController {
   private device(session: Session): DeviceState {
     let d = this.devices.get(session);
     if (!d) {
-      d = { gen: 0 };
+      d = { gen: 0, pendingAlerts: [] };
       this.devices.set(session, d);
     }
     return d;
