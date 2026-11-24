@@ -1,18 +1,19 @@
-# Never in the image: secrets, local data, builds, tooling scratch
-.env
-.env.*
-!.env.example
+# Allowlist: the image is built from the workspace manifests and the app/package sources only.
+# Anything else in the working tree (secrets, local data, scratch) never reaches the build.
+*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!tsconfig.base.json
+!apps/
+!packages/
+
+# Inside the allowed folders: no installs, builds, local data or env files.
 **/node_modules
 **/dist
-data
+**/data
 **/*.sqlite*
-tmp
-.git
-.github
-.vscode
-.idea
-.superpowers
-.playwright-mcp
-docs/superpowers
-*.ehpk
-*.log
+**/.env
+**/.env.*
+**/*.log
+**/*.ehpk
