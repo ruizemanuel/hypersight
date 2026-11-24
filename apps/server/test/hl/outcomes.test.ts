@@ -338,4 +338,14 @@ describe('the captured testnet catalogue', () => {
   it('gives every market a unique key', () => {
     expect(new Set(all.map((m) => m.key)).size).toBe(all.length);
   });
+
+  it('ranks recurring markets (stable watchlist keys) above one-off ones on equal score', () => {
+    const c = new Catalogue({ now: () => Date.UTC(2026, 10, 23, 12) });
+    c.reset(
+      outcomeMetaFixture as unknown as OutcomeMetaLike,
+      templatesFixture as unknown as OutcomeTemplateLike[],
+    );
+    // A 5-minute BTC candle market expires sooner, but "btc" should find the daily first.
+    expect(c.search('btc')[0]?.key).toBe('rb:BTC:1d');
+  });
 });

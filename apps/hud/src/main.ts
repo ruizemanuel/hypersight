@@ -6,6 +6,9 @@ import {
 import { createPageRenderer } from './bridge/pages';
 import { createBridgeQueue } from './bridge/queue';
 import { queuedStorage } from './bridge/storage';
+import { createCompanionApi, httpBaseFromWs } from './companion/api';
+import { mountCompanion } from './companion/app';
+import './companion/styles.css';
 import { createInputNormalizer } from './input/normalize';
 import { HudSocket } from './net/socket';
 import { loadToken, saveToken, type TokenStorage } from './net/token';
@@ -198,6 +201,12 @@ async function boot(): Promise<void> {
   }
 
   socket = new HudSocket(serverWsUrl(), token);
+  // Phone-side setup screen (status, watchlist, presets, limits, alerts, history).
+  const appEl = document.getElementById('app');
+  if (appEl) {
+    mountCompanion(appEl, createCompanionApi(httpBaseFromWs(serverWsUrl()), token));
+    phoneStatus(PHONE_STATUS[state.status]);
+  }
   socket.onStatus((s) => {
     if (s === 'open') return; // the session is live once `welcome` arrives
     if (s === 'unauthorized') showTokenForm(storage);

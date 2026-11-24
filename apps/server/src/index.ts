@@ -185,7 +185,20 @@ function main(): void {
     },
   });
 
-  const app = createApp({ sessionToken: cfg.sessionToken });
+  const app = createApp({
+    sessionToken: cfg.sessionToken,
+    api: {
+      repos,
+      catalogue,
+      onChange: () => publisher.publish(),
+      status: () => ({
+        mode: cfg.executor,
+        network: 'testnet',
+        connected: registry.all().some((s) => s.attached),
+        latency: sessionController.metrics(),
+      }),
+    },
+  });
   const server = serve({ fetch: app.fetch, port: cfg.port, hostname: '0.0.0.0' }, (info) =>
     log(`[http] listening on :${info.port} · executor ${cfg.executor} · Hyperliquid testnet`),
   ) as Server;

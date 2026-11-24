@@ -1,0 +1,166 @@
+/* Even phone tokens: light by default, dark when the phone is dark. */
+:root {
+  --text: #232323;
+  --bg: #ffffff;
+  --surface: #eeeeee;
+  --accent: #fef991;
+  --muted: #6b6b6b;
+  --line: #dddddd;
+  --radius: 6px;
+  --margin: 12px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #ffffff;
+    --bg: #111111;
+    --surface: #1a1a1a;
+    --muted: #9a9a9a;
+    --line: #2a2a2a;
+  }
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+#app.companion {
+  display: block;
+  height: auto;
+  min-height: 100%;
+  padding: var(--margin);
+  text-align: left;
+}
+.companion header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--margin);
+}
+.companion h1 {
+  font-size: 20px;
+  margin: 0;
+}
+.companion h2 {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+.companion .badge {
+  background: var(--accent);
+  color: #232323;
+  border-radius: var(--radius);
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.companion .card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: var(--margin);
+  margin-bottom: var(--margin);
+}
+.companion p {
+  margin: 0 0 4px;
+}
+.companion .muted,
+.companion small {
+  color: var(--muted);
+}
+.companion small {
+  display: block;
+  font-size: 12px;
+}
+.companion .list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+.companion .list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.companion .list li:last-child {
+  border-bottom: none;
+}
+.companion .history li {
+  display: block;
+}
+.companion .fields,
+.companion .inline {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.companion .inline {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+.companion .field span {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+.companion input,
+.companion select {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px;
+}
+.companion input[type="checkbox"] {
+  width: auto;
+}
+.companion .rule {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.companion button {
+  font: inherit;
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.companion button.primary {
+  background: var(--accent);
+  color: #232323;
+  font-weight: 600;
+}
+.companion button.ghost {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--line);
+}
+.companion .toast {
+  position: fixed;
+  left: var(--margin);
+  right: var(--margin);
+  bottom: var(--margin);
+  background: var(--text);
+  color: var(--bg);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+.companion .toast.show {
+  opacity: 1;
+}
+.companion .foot {
+  text-align: center;
+  font-size: 12px;
+}

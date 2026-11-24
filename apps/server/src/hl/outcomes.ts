@@ -434,9 +434,13 @@ export class Catalogue {
       }
       if (score > 0) scored.push({ m, score });
     }
+    // Recurring markets (rb:/rq: stable keys) are what a watchlist should hold; one-off markets
+    // with the same words come after them.
+    const oneOff = (m: OutcomeMarket) => (m.key.startsWith('o:') ? 1 : 0);
     scored.sort(
       (a, b) =>
         b.score - a.score ||
+        oneOff(a.m) - oneOff(b.m) ||
         (a.m.expiresAt ?? Number.POSITIVE_INFINITY) - (b.m.expiresAt ?? Number.POSITIVE_INFINITY),
     );
     return scored.slice(0, limit).map((s) => s.m);
