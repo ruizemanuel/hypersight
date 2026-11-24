@@ -36,6 +36,18 @@ describe('checkRisk', () => {
     expect(checkRisk(open({ notionalUsd: 250 }), DEFAULT_RISK_LIMITS, ctx)).toEqual({ ok: true });
   });
 
+  it('allows an order at the cap whose float product lands one ulp above it', () => {
+    const worst = 390_625 * 0.00064; // 250.00000000000003
+    expect(worst).toBeGreaterThan(250);
+    expect(checkRisk(open({ notionalUsd: worst }), DEFAULT_RISK_LIMITS, ctx)).toEqual({ ok: true });
+    expect(
+      checkRisk(open({ notionalUsd: 250 }), DEFAULT_RISK_LIMITS, {
+        ...ctx,
+        dailyUsedUsd: 1750 + 1e-13,
+      }),
+    ).toEqual({ ok: true });
+  });
+
   it('lets a position be reduced even above the caps', () => {
     const close = open({ notionalUsd: 900, reducesExposure: true, leverage: undefined });
     expect(checkRisk(close, DEFAULT_RISK_LIMITS, { ...ctx, dailyUsedUsd: 1990 })).toEqual({

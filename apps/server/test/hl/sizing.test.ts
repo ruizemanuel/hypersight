@@ -7,6 +7,7 @@ import {
   roundOutcomePrice,
   roundPerpPrice,
   roundPerpSize,
+  sizeOutcomeBuy,
 } from '../../src/hl/sizing';
 
 describe('perp sizing', () => {
@@ -66,5 +67,22 @@ describe('outcome sizing', () => {
     expect(outcomeSlippagePrice(0.985, 3)).toBe('0.99999');
     expect(outcomeSellSlippagePrice(0.6, 3)).toBe('0.57');
     expect(outcomeSellSlippagePrice(0.02, 3)).toBe('0.00001');
+  });
+});
+
+describe('outcome buy sizing', () => {
+  it('gives up a few shares so a one-tick move still fills', () => {
+    // $5 at 0.50 buys 10 shares only with the limit at the ask itself.
+    const size = sizeOutcomeBuy([{ px: 0.5, sz: 1000 }], 5, 3);
+    expect(size).toMatchObject({ shares: 9, limit: 0.53 });
+    expect(size?.worst).toBeLessThanOrEqual(5);
+  });
+
+  it('keeps every share when the room would cost too many of them', () => {
+    // At 0.05 one tick is 20% of the shares: the limit stays at the ask.
+    expect(sizeOutcomeBuy([{ px: 0.05, sz: 1000 }], 5, 3)).toMatchObject({
+      shares: 100,
+      limit: 0.05,
+    });
   });
 });

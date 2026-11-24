@@ -437,6 +437,23 @@ describe('ProposalService.confirm', () => {
     expect(s.executor.plans).toHaveLength(0);
   });
 
+  it('asks for a fresh review when the ask moved past an outcome buy limit, even by one tick', async () => {
+    s.books['#273210'] = { bids: [], asks: [{ px: 0.05, sz: 1000 }] };
+    const p = await proposed(s, {
+      kind: 'buyOutcome',
+      marketKey: 'rb:BTC:1d',
+      sideIndex: 0,
+      usd: 5,
+    });
+    expect(order(p).px).toBe('0.05');
+    s.books['#273210'] = { bids: [], asks: [{ px: 0.06, sz: 1000 }] };
+    expect(await s.service.confirm(p.id)).toEqual({
+      status: 'none',
+      message: 'Price moved — review again',
+    });
+    expect(s.executor.plans).toHaveLength(0);
+  });
+
   it('does nothing after a cancel', async () => {
     const p = await proposed(s, { kind: 'closePerp', coin: 'ETH', fraction: 0.5 });
     s.service.cancel(p.id);
@@ -474,6 +491,32 @@ describe('ProposalService.confirm', () => {
     expect(first.status).toBe('filled');
     expect(await s.service.confirm(p.id)).toEqual(first);
     expect(s.executor.plans).toHaveLength(1);
+  });
+
+  it('says nothing was sent when the price check fails before the order', async () => {
+    const p = await proposed(s, { kind: 'closePerp', coin: 'ETH', fraction: 0.5 });
+    Object.defineProperty(s.books, 'ETH', {
+      get: () => {
+        throw new Error('l2Book timed out');
+      },
+    });
+    expect(await s.service.confirm(p.id)).toEqual({
+      status: 'none',
+      message: 'Could not check the price — nothing sent',
+    });
+    expect(s.executor.plans).toHaveLength(0);
+  });
+
+  it('says nothing was sent when the limits cannot be read before the order', async () => {
+    const p = await proposed(s, { kind: 'closePerp', coin: 'ETH', fraction: 0.5 });
+    s.repos.usage.today = () => {
+      throw new Error('database is locked');
+    };
+    expect(await s.service.confirm(p.id)).toEqual({
+      status: 'none',
+      message: 'Could not check your limits — nothing sent',
+    });
+    expect(s.executor.plans).toHaveLength(0);
   });
 
   it('turns an executor failure into an error result', async () => {

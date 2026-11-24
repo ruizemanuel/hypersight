@@ -75,10 +75,15 @@ export type OutcomeBuySize = {
   depthLimited: boolean;
 };
 
+/** Fewest shares kept when trading some for one tick of room (at most 10% are given up). */
+const ROOM_KEEP = 0.9;
+
 /**
  * Most shares the amount buys walking the asks, with a limit price chosen so the worst case
  * (shares × limit) never exceeds the amount: money left over after the expected fill becomes
  * slippage room, capped at `ticks` × 0.01 (or 10% of a cheap price) above the deepest level used.
+ * When the amount leaves no room at all (the limit is the price itself), a few shares are given up
+ * so a one-tick move still fills.
  */
 export function sizeOutcomeBuy(
   asks: { px: number; sz: number }[],
@@ -88,7 +93,13 @@ export function sizeOutcomeBuy(
   const best = asks[0];
   if (!best || !(usd > 0)) return null;
   const maxPx = Math.min(best.px + ticks * OUTCOME_TICK, OUTCOME_MAX_PX);
-  let pick: { shares: number; limit: number; depthLimited: boolean } | null = null;
+  let pick: { shares: number; limit: number; level: number; depthLimited: boolean } | null = null;
+  const limitFor = (shares: number, level: number) => {
+    const slip = Math.min(ticks * OUTCOME_TICK, Math.max(OUTCOME_TICK, level * 0.1));
+    const room = Math.floor((usd / shares) * 100_000) / 100_000;
+    const limit = Number(roundOutcomePrice(Math.min(level + slip, room, maxPx)));
+    return Math.max(limit, level);
+  };
   let depth = 0;
   for (const level of asks) {
     if (level.px > maxPx + EPS) break;
@@ -96,12 +107,20 @@ export function sizeOutcomeBuy(
     const affordable = Math.floor(usd / level.px + EPS);
     const shares = Math.min(affordable, Math.floor(depth + EPS));
     if (shares <= 0 || (pick && shares <= pick.shares)) continue;
-    const slip = Math.min(ticks * OUTCOME_TICK, Math.max(OUTCOME_TICK, level.px * 0.1));
-    const room = Math.floor((usd / shares) * 100_000) / 100_000;
-    const limit = Number(roundOutcomePrice(Math.min(level.px + slip, room, maxPx)));
-    pick = { shares, limit: Math.max(limit, level.px), depthLimited: shares < affordable };
+    pick = {
+      shares,
+      limit: limitFor(shares, level.px),
+      level: level.px,
+      depthLimited: shares < affordable,
+    };
   }
   if (!pick) return null;
+  if (pick.limit <= pick.level + EPS && pick.level + OUTCOME_TICK <= maxPx + EPS) {
+    const fewer = Math.floor(usd / (pick.level + OUTCOME_TICK) + EPS);
+    if (fewer > 0 && fewer >= pick.shares * ROOM_KEEP - EPS) {
+      pick = { ...pick, shares: fewer, limit: limitFor(fewer, pick.level) };
+    }
+  }
   let left = pick.shares;
   let estimate = 0;
   for (const level of asks) {
@@ -110,7 +129,8 @@ export function sizeOutcomeBuy(
     left -= take;
     if (left <= 0) break;
   }
-  return { ...pick, estimate, worst: pick.shares * pick.limit };
+  const { level: _level, ...size } = pick;
+  return { ...size, estimate, worst: pick.shares * pick.limit };
 }
 
 /** Sell limit: best bid − ticks × 0.01, floored above 0. */

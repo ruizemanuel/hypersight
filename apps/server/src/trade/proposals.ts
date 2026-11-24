@@ -17,7 +17,7 @@ import {
 import { describeIntent } from '../intent/describe';
 import type { Repos } from '../store/repos';
 import type { ExecResult, Executor, OrderPlan, PlaceOrder, PlanStep } from './executor';
-import { checkRisk } from './risk';
+import { checkRisk, type RiskResult } from './risk';
 
 export const PROPOSAL_TTL_MS = 15_000;
 const PERP_MIN_USD = 10;
@@ -185,68 +185,84 @@ export class ProposalService {
       }
     }
     p.state = 'executing';
+    // Checks before the executor call can only stop the order: if one fails, nothing was sent.
+    let moved: boolean;
     try {
-      if (await this.drifted(p)) {
-        p.state = 'expired';
-        return { status: 'none', message: 'Price moved — review again' };
-      }
-      const settings = this.deps.repos.settings.get();
-      const risk = checkRisk(
+      moved = await this.drifted(p);
+    } catch {
+      p.state = 'pending';
+      return { status: 'none', message: 'Could not check the price — nothing sent' };
+    }
+    if (moved) {
+      p.state = 'expired';
+      return { status: 'none', message: 'Price moved — review again' };
+    }
+    let risk: RiskResult;
+    try {
+      risk = checkRisk(
         {
           network: this.deps.network,
           notionalUsd: p.notionalUsd,
           reducesExposure: p.reducesExposure,
         },
-        settings.risk,
+        this.deps.repos.settings.get().risk,
         { dailyUsedUsd: this.deps.repos.usage.today(now), lastWriteAt: this.lastWriteAt, now },
       );
-      if (!risk.ok) {
-        p.state = 'pending';
-        return { status: 'none', message: risk.reason };
-      }
-      this.audit('confirm', p.id, p.view.title, null);
-      this.lastWriteAt = now;
-      let result: ExecResult;
-      try {
-        result =
-          p.intent.kind === 'cancelAll'
-            ? await this.deps.executor.cancelAll()
-            : await this.deps.executor.execute(p.plan);
-      } catch (err) {
-        result = {
-          status: 'error',
-          message:
-            `Execution failed: ${err instanceof Error ? err.message : 'unknown error'}`.slice(
-              0,
-              80,
-            ),
-        };
-      }
-      // The order went out: record the result first so nothing below can make it confirmable again.
-      p.result = result;
-      p.state = 'done';
-      if (!p.reducesExposure && (result.status === 'filled' || result.status === 'partial')) {
-        const filled = (result.filledSz ?? 0) * (result.avgPx ?? 0);
-        try {
-          this.deps.repos.usage.addNotional(filled > 0 ? filled : p.notionalUsd, this.deps.now());
-        } catch {
-          // bookkeeping must never turn a placed order back into a pending one
-        }
-      }
-      this.audit('result', p.id, result.message, result);
-      return result;
-    } catch (err) {
+    } catch {
       p.state = 'pending';
-      throw err;
+      return { status: 'none', message: 'Could not check your limits — nothing sent' };
     }
+    if (!risk.ok) {
+      p.state = 'pending';
+      return { status: 'none', message: risk.reason };
+    }
+    this.audit('confirm', p.id, p.view.title, null);
+    this.lastWriteAt = now;
+    let result: ExecResult;
+    try {
+      result =
+        p.intent.kind === 'cancelAll'
+          ? await this.deps.executor.cancelAll()
+          : await this.deps.executor.execute(p.plan);
+    } catch (err) {
+      result = {
+        status: 'error',
+        message: `Execution failed: ${err instanceof Error ? err.message : 'unknown error'}`.slice(
+          0,
+          80,
+        ),
+      };
+    }
+    // The order went out: record the result first so nothing below can make it confirmable again.
+    p.result = result;
+    p.state = 'done';
+    if (!p.reducesExposure && (result.status === 'filled' || result.status === 'partial')) {
+      const filled = (result.filledSz ?? 0) * (result.avgPx ?? 0);
+      try {
+        this.deps.repos.usage.addNotional(filled > 0 ? filled : p.notionalUsd, this.deps.now());
+      } catch {
+        // bookkeeping must never turn a placed order back into a pending one
+      }
+    }
+    this.audit('result', p.id, result.message, result);
+    return result;
   }
 
-  /** True when the best price moved past the slippage cap since the proposal was sized. */
+  /**
+   * True when the best price moved past the slippage cap since the proposal was sized, or past the
+   * order's own limit (an IOC that can no longer fill must be re-reviewed, not sent to fail).
+   */
   private async drifted(p: Proposal): Promise<boolean> {
     if (!p.refCoin || !p.refSide || !p.maxDrift || p.refPx <= 0) return false;
     const book = await this.deps.stream.book(p.refCoin);
     const best = (p.refSide === 'bid' ? book.bids : book.asks)[0];
     if (!best) return true;
+    const order = p.plan.steps.find(
+      (st): st is PlaceOrder => st.kind === 'order' && st.coin === p.refCoin,
+    );
+    const limit = order ? Number(order.px) : Number.NaN;
+    if (Number.isFinite(limit) && (order?.isBuy ? best.px > limit + 1e-9 : best.px < limit - 1e-9))
+      return true;
     const move = Math.abs(best.px - p.refPx);
     return p.maxDrift.kind === 'ratio'
       ? move / p.refPx > p.maxDrift.value
