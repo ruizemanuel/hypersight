@@ -47,7 +47,12 @@ export const ProposalViewSchema = z.object({
 export type ProposalView = z.infer<typeof ProposalViewSchema>;
 
 export const OverlaySchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('listening'), transcript: z.string() }),
+  z.object({
+    kind: z.literal('listening'),
+    transcript: z.string(),
+    /** How listening started (HUD-side): hold → release sends; menu → tap sends. */
+    source: z.enum(['hold', 'menu']).optional(),
+  }),
   z.object({ kind: z.literal('thinking') }),
   z.object({ kind: z.literal('confirm'), proposal: ProposalViewSchema }),
   z.object({

@@ -147,7 +147,7 @@ export function layoutOverlay(
         hdr: hdr('LISTENING'),
         val: '● Recording',
         body: transcript ? transcript.slice(-TRANSCRIPT_TAIL) : `Listening… ${elapsed}s`,
-        ftr: 'Release to send · 2×TAP cancel',
+        ftr: o.source === 'menu' ? 'TAP send · 2×TAP cancel' : 'Release to send · 2×TAP cancel',
       });
     }
     case 'thinking':

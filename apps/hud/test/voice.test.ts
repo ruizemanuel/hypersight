@@ -72,11 +72,12 @@ describe('VoiceController', () => {
     expect(voice.consumes({ type: 'holdEnd' })).toBe(true);
   });
 
-  it.each(['foregroundExit', 'exit'] as const)('stops the mic on %s', async (type) => {
+  it.each(['foregroundExit', 'exit'] as const)('stops the mic and cancels on %s', async (type) => {
     const { voice, log } = harness();
     await voice.onInput({ type: 'holdStart' });
     await voice.onInput({ type });
-    expect(log.slice(-2)).toEqual(['audio(false)', 'send(end)']);
+    // Leaving the app abandons the utterance: nothing is transcribed or proposed.
+    expect(log.slice(-2)).toEqual(['audio(false)', 'send(cancel)']);
     expect(voice.state).toBe('idle');
   });
 
@@ -101,7 +102,7 @@ describe('VoiceController', () => {
     await voice.onInput({ type: 'holdStart' });
     vi.advanceTimersByTime(800);
     await voice.onDevice('disconnected');
-    expect(log).toEqual(['audio(true)', 'send(start)', 'audio(false)', 'send(end)']);
+    expect(log).toEqual(['audio(true)', 'send(start)', 'audio(false)', 'send(cancel)']);
     expect(unavailable).toHaveLength(1);
     await voice.onInput({ type: 'holdStart' });
     expect(log).toHaveLength(4);
@@ -110,12 +111,13 @@ describe('VoiceController', () => {
     expect(voice.state).toBe('listening');
   });
 
-  it('stops without backing off when the glasses disconnect later in a long command', async () => {
-    const { voice, unavailable } = harness();
+  it('cancels without backing off when the glasses disconnect later in a long command', async () => {
+    const { voice, log, unavailable } = harness();
     await voice.onInput({ type: 'holdStart' });
     vi.advanceTimersByTime(5000);
     await voice.onDevice('disconnected');
     expect(voice.state).toBe('idle');
+    expect(log.at(-1)).toBe('send(cancel)');
     expect(unavailable).toHaveLength(0);
   });
 
@@ -125,7 +127,62 @@ describe('VoiceController', () => {
     voice.onChange((s) => states.push(s));
     await voice.onInput({ type: 'holdStart' });
     await vi.advanceTimersByTimeAsync(12_100);
-    expect(states).toEqual(['listening', 'idle']);
+    expect(states).toEqual(['listening', 'sent']);
+  });
+
+  // Phase 3 review I4: the Listening footer promises "2×TAP cancel".
+  it('cancels on double tap while listening: closes the mic and sends cancel, not end', async () => {
+    const { voice, log } = harness();
+    const states: string[] = [];
+    voice.onChange((s) => states.push(s));
+    await voice.onInput({ type: 'holdStart' });
+    expect(voice.consumes({ type: 'doubleTap' })).toBe(true);
+    await voice.onInput({ type: 'doubleTap' });
+    expect(log).toEqual(['audio(true)', 'send(start)', 'audio(false)', 'send(cancel)']);
+    expect(states).toEqual(['listening', 'cancelled']);
+    expect(voice.state).toBe('idle');
+  });
+
+  it('cancels menu-started listening on double tap and reports the source', async () => {
+    const { voice, log } = harness();
+    const changes: string[] = [];
+    voice.onChange((s, source) => changes.push(`${s}:${source}`));
+    await voice.onInput({ type: 'menu', id: 1 });
+    await voice.onInput({ type: 'doubleTap' });
+    expect(log.at(-1)).toBe('send(cancel)');
+    expect(changes).toEqual(['listening:menu', 'cancelled:menu']);
+  });
+
+  it('leaves a double tap to the deck while idle', () => {
+    const { voice } = harness();
+    expect(voice.consumes({ type: 'doubleTap' })).toBe(false);
+  });
+
+  it('closes the mic without starting when a double tap arrives while it is opening', async () => {
+    const { voice, log } = harness({ audioDelayMs: 100 });
+    const states: string[] = [];
+    voice.onChange((s) => states.push(s));
+    const starting = voice.onInput({ type: 'holdStart' });
+    await voice.onInput({ type: 'doubleTap' });
+    await vi.advanceTimersByTimeAsync(300);
+    await starting;
+    expect(log).toEqual(['audio(true)', 'audio(false)']);
+    expect(states).toEqual([]);
+    expect(voice.state).toBe('idle');
+  });
+
+  // Phase 3 review I5: "Voice unavailable" must not be overwritten by Listening / "Didn't catch that".
+  it('closes the mic without starting when the glasses disconnect while it is opening', async () => {
+    const { voice, log, unavailable } = harness({ audioDelayMs: 100 });
+    const states: string[] = [];
+    voice.onChange((s) => states.push(s));
+    const starting = voice.onInput({ type: 'holdStart' });
+    await voice.onDevice('disconnected');
+    await vi.advanceTimersByTimeAsync(300);
+    await starting;
+    expect(log).toEqual(['audio(true)', 'audio(false)']);
+    expect(states).toEqual([]);
+    expect(unavailable).toHaveLength(1);
   });
 
   it('handles a release that arrives while the mic is still opening', async () => {

@@ -138,6 +138,7 @@ function main(): void {
         log(`[ws ${session.id.slice(0, 8)}] ${msg.t}${msg.t === 'voice' ? ` ${msg.phase}` : ''}`);
         if (msg.t === 'voice' && msg.phase === 'start') voice.start(session);
         else if (msg.t === 'voice' && msg.phase === 'end') await voice.end(session);
+        else if (msg.t === 'voice' && msg.phase === 'cancel') voice.cancel(session);
       },
       onAudio: (session, pcm) => voice.audio(session, pcm),
     },

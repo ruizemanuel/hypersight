@@ -191,6 +191,19 @@ describe('hudReducer overlays and link status', () => {
     expect(r.state.overlay).toBeNull();
   });
 
+  it('keeps the listening source and start time when server partials arrive', () => {
+    const { state } = run([
+      {
+        type: 'overlay',
+        overlay: { kind: 'listening', transcript: '', source: 'menu' },
+        at: 1_000,
+      },
+      { type: 'overlay', overlay: { kind: 'listening', transcript: 'close half' }, at: 3_000 },
+    ]);
+    expect(state.overlay).toEqual({ kind: 'listening', transcript: 'close half', source: 'menu' });
+    expect(state.overlayAt).toBe(1_000);
+  });
+
   it('turns a thinking overlay older than 15 s into "No answer — try again"', () => {
     const shown = run([{ type: 'overlay', overlay: { kind: 'thinking' }, at: 1_000 }]).state;
     expect(step(shown, { type: 'tick', now: 15_999 }).state.overlay).toEqual({ kind: 'thinking' });

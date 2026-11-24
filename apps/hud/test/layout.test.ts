@@ -159,6 +159,17 @@ describe('layoutOverlay', () => {
     expect(page.texts.find((t) => t.name === 'body')?.text).toBe('Listening… 3s');
   });
 
+  it('tells the user how to send and cancel, per how listening started', () => {
+    const ftr = (source?: 'hold' | 'menu') =>
+      layoutOverlay(
+        { kind: 'listening', transcript: '', ...(source ? { source } : {}) },
+        NOW,
+      ).texts.find((t) => t.name === 'ftr')?.text;
+    expect(ftr('hold')).toBe('Release to send · 2×TAP cancel');
+    expect(ftr('menu')).toBe('TAP send · 2×TAP cancel');
+    expect(ftr()).toBe('Release to send · 2×TAP cancel');
+  });
+
   it('keeps only the tail of a long transcript', () => {
     const transcript = `${'x'.repeat(300)} close half my eth`;
     const page = layoutOverlay({ kind: 'listening', transcript }, NOW, {

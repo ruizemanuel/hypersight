@@ -78,6 +78,20 @@ describe('VoiceRouter', () => {
     });
   });
 
+  // Phase 3 review I4: 2×TAP while listening abandons the utterance.
+  it('drops the stream, skips the transcript and clears the overlay on voice cancel', async () => {
+    const { router, session, streams, transcripts, sent } = setup();
+    router.start(session);
+    const onPartial = streams[0]?.opts.onPartial as (t: string) => void;
+    onPartial('close half');
+    router.cancel(session);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(streams[0]?.closed).toBe(true);
+    expect(transcripts).toEqual([]);
+    const overlays = sent.filter((m) => m.t === 'overlay');
+    expect(overlays).toEqual([expect.objectContaining({ overlay: null })]);
+  });
+
   it('ignores audio without an open stream and replaces a stale stream on a new start', () => {
     const { router, session, streams } = setup();
     router.audio(session, Buffer.from([9]));

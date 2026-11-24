@@ -120,14 +120,17 @@ async function boot(): Promise<void> {
       sendAudio: (pcm) => socket?.sendAudio(pcm) ?? false,
     },
   });
-  voice.onChange((s) => {
-    if (s === 'listening') {
-      dispatch({ type: 'overlay', overlay: { kind: 'listening', transcript: '' }, at: Date.now() });
+  voice.onChange((change, source) => {
+    if (change === 'listening') {
+      const overlay = { kind: 'listening' as const, transcript: '', source };
+      dispatch({ type: 'overlay', overlay, at: Date.now() });
       return;
     }
-    // Released: show Thinking until the server answers (the 1 s tick expires it if it never does).
     if (state.overlay?.kind !== 'listening') return;
-    dispatch({ type: 'overlay', overlay: { kind: 'thinking' }, at: Date.now() });
+    // Sent: show Thinking until the server answers (the 1 s tick expires it if it never does).
+    // Cancelled: back to the deck; the server drops the utterance.
+    const overlay = change === 'sent' ? { kind: 'thinking' as const } : null;
+    dispatch({ type: 'overlay', overlay, at: Date.now() });
   });
   voice.onUnavailable(() => {
     dispatch({

@@ -40,6 +40,13 @@ describe('ClientMsgSchema', () => {
     });
   });
 
+  it('accepts a cancelled utterance (2×TAP while listening)', () => {
+    expect(ClientMsgSchema.parse({ t: 'voice', phase: 'cancel' })).toEqual({
+      t: 'voice',
+      phase: 'cancel',
+    });
+  });
+
   it('rejects an unknown message type', () => {
     expect(() => ClientMsgSchema.parse({ t: 'order', coin: 'ETH' })).toThrow();
   });

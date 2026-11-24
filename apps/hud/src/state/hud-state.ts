@@ -83,8 +83,15 @@ export function step(s: HudState, ev: HudEvent): Result {
       const mode = s.mode === 'actions' && kept < 0 ? 'deck' : s.mode;
       return done({ ...s, cards: ev.cards, index, badge, mode, live: ev.cached !== true });
     }
-    case 'overlay':
+    case 'overlay': {
+      // Server partials update the words; the HUD-side source and start time stay.
+      const prev = s.overlay;
+      if (ev.overlay?.kind === 'listening' && prev?.kind === 'listening') {
+        const source = ev.overlay.source ?? prev.source;
+        return done({ ...s, overlay: { ...ev.overlay, ...(source ? { source } : {}) } });
+      }
       return done({ ...s, overlay: ev.overlay, overlayAt: ev.at });
+    }
     case 'status':
       return done({ ...s, status: ev.status });
     case 'exitFailed':
