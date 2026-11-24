@@ -324,6 +324,42 @@ describe('SessionController — focus', () => {
   });
 });
 
+describe('SessionController — alerts (Task 20)', () => {
+  const takeHalf = {
+    ruleId: 'eth-pnl',
+    title: 'ETH +5.5%',
+    lines: ['PnL +$82.50', 'your rule: take half'],
+    action: { kind: 'closePerp' as const, coin: 'ETH', fraction: 0.5 },
+  };
+
+  it('shows an alert with a quick action, and tapping it goes through the normal confirm', async () => {
+    const s = setup();
+    s.controller.alert(s.session, takeHalf);
+    const alert = s.overlays().at(-1);
+    if (alert?.kind !== 'alert' || !alert.action)
+      throw new Error('expected an alert with an action');
+    expect(alert.title).toBe('ETH +5.5%');
+    expect(alert.action.label).toBe('take half');
+    await s.controller.onClientMsg(s.session, {
+      t: 'action',
+      cardId: 'alert',
+      actionId: alert.action.id,
+    });
+    expect(confirmOf(s.overlays().at(-1)).title).toBe('CLOSE 50% ETH LONG');
+    expect(s.executor.plans).toHaveLength(0);
+  });
+
+  it('never covers a confirm card: the alert waits until it is answered', async () => {
+    const s = setup();
+    await s.controller.onTranscript(s.session, 'close half my eth', {});
+    const p = confirmOf(s.overlays().at(-1));
+    s.controller.alert(s.session, takeHalf);
+    expect(s.overlays().at(-1)?.kind).toBe('confirm');
+    await s.controller.onClientMsg(s.session, { t: 'cancel', proposalId: p.id });
+    expect(s.overlays().at(-1)).toMatchObject({ kind: 'alert', title: 'ETH +5.5%' });
+  });
+});
+
 describe('SessionController — stale overlays (Phase 1/3 review)', () => {
   it('clears Listening/Thinking from the snapshot when the client goes away', async () => {
     const s = setup();

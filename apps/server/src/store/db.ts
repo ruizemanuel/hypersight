@@ -36,6 +36,13 @@ const MIGRATIONS: string[] = [
   );
   INSERT INTO watch (key, position) VALUES ('rb:BTC:1d', 0), ('rb:ETH:1d', 1);
   `,
+  // Default alert rules (Task 20): resting fills, liquidation distance < 10%, settled outcomes.
+  `
+  INSERT INTO rules (id, json) VALUES
+    ('default-fill', '{"id":"default-fill","kind":"fill","params":{},"cooldownMs":0,"enabled":true}'),
+    ('default-liq', '{"id":"default-liq","kind":"liqDistance","params":{"pct":10},"cooldownMs":600000,"enabled":true}'),
+    ('default-settled', '{"id":"default-settled","kind":"settled","params":{},"cooldownMs":0,"enabled":true}');
+  `,
 ];
 
 /** Opens (creating directories as needed) and migrates the database. `':memory:'` for tests. */

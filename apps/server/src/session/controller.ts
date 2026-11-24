@@ -1,4 +1,5 @@
 import type { Badge, ClientMsg, Intent, Overlay, ProposalView } from '@hypersight/protocol';
+import { type AlertEvent, ruleVerb } from '../alerts/rules';
 import { fmtPrice, fmtProb, fmtUsd } from '../deck/format';
 import type { AccountView } from '../hl/account';
 import { outcomeCoin } from '../hl/ids';
@@ -41,6 +42,8 @@ type DeviceState = {
   gen: number;
   cardFocus?: Focus;
   oddsFocus?: { marketKey: string; at: number };
+  /** An alert that arrived while the user was busy (confirm, listening, thinking). */
+  pendingAlert?: Overlay;
 };
 
 /** "buy 20 dollars of yes" right after "odds on …?" refers to that market for this long. */
@@ -92,6 +95,31 @@ export class SessionController {
     this.deps.voice?.cancel(session);
     const kind = session.overlay()?.kind;
     if (kind === 'listening' || kind === 'thinking') session.send({ t: 'overlay', overlay: null });
+  }
+
+  /** Shows an alert, or holds it until the confirm/voice step on screen is answered. */
+  alert(session: Session, ev: AlertEvent): void {
+    const dev = this.device(session);
+    const overlay: Overlay = {
+      kind: 'alert',
+      title: ev.title,
+      lines: ev.lines.slice(0, 3),
+      ...(ev.action
+        ? {
+            action: {
+              id: `al${this.now().toString(36)}`,
+              label: ruleVerb(ev.action).slice(0, 24),
+              intent: ev.action,
+            },
+          }
+        : {}),
+    };
+    const busy = session.overlay()?.kind;
+    if (busy === 'confirm' || busy === 'listening' || busy === 'thinking') {
+      dev.pendingAlert = overlay;
+      return;
+    }
+    this.show(session, overlay);
   }
 
   metrics(): Metrics {
@@ -325,6 +353,13 @@ export class SessionController {
   }
 
   private show(session: Session, overlay: Overlay | null): void {
+    const dev = this.device(session);
+    if (overlay === null && dev.pendingAlert) {
+      const pending = dev.pendingAlert;
+      delete dev.pendingAlert;
+      session.send({ t: 'overlay', overlay: pending });
+      return;
+    }
     session.send({ t: 'overlay', overlay });
   }
 

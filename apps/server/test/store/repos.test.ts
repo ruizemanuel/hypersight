@@ -63,7 +63,7 @@ describe('migrations', () => {
     expect(createRepos(db2).watch.list()).toEqual(['rb:BTC:1d']);
     expect(
       (db2.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-    ).toBe(1);
+    ).toBe(2);
     db2.close();
   });
 });
@@ -91,11 +91,13 @@ describe('rules', () => {
 
   it('upserts, lists and removes validated rules', () => {
     const { rules } = createRepos(openDb(':memory:'));
+    // The seeded defaults (Task 20) are covered in alerts/engine.test.ts.
+    const own = () => rules.list().filter((r) => !r.id.startsWith('default-'));
     rules.upsert(rule);
     rules.upsert({ ...rule, enabled: false });
-    expect(rules.list()).toEqual([{ ...rule, enabled: false }]);
+    expect(own()).toEqual([{ ...rule, enabled: false }]);
     rules.remove('eth-tp');
-    expect(rules.list()).toEqual([]);
+    expect(own()).toEqual([]);
   });
 
   it('rejects a malformed rule', () => {

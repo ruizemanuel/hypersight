@@ -2,6 +2,7 @@ import type { Server } from 'node:http';
 import Anthropic from '@anthropic-ai/sdk';
 import { serve } from '@hono/node-server';
 import { privateKeyToAccount } from 'viem/accounts';
+import { AlertEngine } from './alerts/engine';
 import { type Config, ConfigError, loadConfig } from './config';
 import { buildDeck } from './deck/build-deck';
 import { createDeckPublisher } from './deck/publisher';
@@ -62,6 +63,7 @@ function main(): void {
   const catalogue = new Catalogue();
   const badge = cfg.executor === 'paper' ? 'PAPER' : 'TESTNET';
   let stream: MarketStream | null = null;
+  let alerts: AlertEngine | null = null;
 
   const watched = (): OutcomeMarket[] =>
     repos.watch
@@ -222,6 +224,17 @@ function main(): void {
       s.on('outcomeMeta', () => publisher.publish());
       await s.start();
       stream = s;
+      alerts = new AlertEngine({
+        stream: s,
+        rules: repos.rules,
+        catalogue,
+        // Detached devices keep the alert in their snapshot and see it when they reconnect.
+        push: (ev) => {
+          for (const session of registry.all()) sessionController.alert(session, ev);
+        },
+        log,
+      });
+      alerts.start();
       if (cfg.executor === 'testnet' && hl.exchange && !executor) {
         executor = new TestnetExecutor({
           exchange: hl.exchange,
@@ -249,6 +262,7 @@ function main(): void {
 
   const shutdown = (signal: string) => {
     log(`[server] ${signal} received, shutting down`);
+    alerts?.stop();
     void Promise.allSettled([stream?.stop(), gateway.close()])
       .then(() => hl.close())
       .then(() => db.close())
