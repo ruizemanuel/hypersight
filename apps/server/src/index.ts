@@ -7,6 +7,7 @@ import { AlertEngine } from './alerts/engine';
 import { type Config, ConfigError, loadConfig } from './config';
 import { buildDeck } from './deck/build-deck';
 import { createDeckPublisher } from './deck/publisher';
+import { computeRecap, dayStartUtc, type RecapFill } from './deck/recap';
 import { createHlClients } from './hl/clients';
 import { type PerpMeta, parsePerpMeta } from './hl/ids';
 import { MarketStream } from './hl/market-stream';
@@ -83,18 +84,33 @@ function main(): void {
       .map((k) => catalogue.byKey(k))
       .filter((m): m is OutcomeMarket => m !== undefined);
 
+  /** `ETH` stays `ETH`; an outcome side coin `#273210` reads as its market (period dropped). */
+  const recapName = (coin: string): string => {
+    if (!coin.startsWith('#')) return coin;
+    const m = catalogue.byOutcome(Math.floor(Number(coin.slice(1)) / 10));
+    return m ? m.short.replace(/ · (daily|hourly|weekly)$/, '') : coin;
+  };
+
   // Read-only Gram (TON testnet) card, only when TON_ADDRESS is set.
   const gram = cfg.tonAddress ? createGramBalance(cfg.tonAddress) : null;
   const publisher = createDeckPublisher({
     build: () => {
       if (!stream) throw new Error('market data not ready yet');
+      const now = Date.now();
+      const recap = computeRecap({
+        entries: repos.audit.since(dayStartUtc(now)),
+        fills: stream.todayFills(now) as RecapFill[],
+        now,
+        nameOf: recapName,
+      });
       return buildDeck({
         view: stream.view(),
         watch: watched(),
         mids: stream.mids(),
         presets: repos.settings.get().presets,
         badge,
-        now: Date.now(),
+        now,
+        ...(recap ? { recap } : {}),
         ...(gram?.current()
           ? { gram: gram.current() as NonNullable<ReturnType<typeof gram.current>> }
           : {}),
@@ -196,7 +212,13 @@ function main(): void {
   const elevenLabsKey = cfg.elevenLabsKey;
   const voice = new VoiceRouter({
     factory: elevenLabsKey
-      ? (opts) => new ElevenLabsStream({ apiKey: elevenLabsKey, ...opts })
+      ? (opts) =>
+          new ElevenLabsStream({
+            apiKey: elevenLabsKey,
+            // VOICE_LANG=multi: the provider detects the language (Spanish commands too).
+            languageCode: cfg.voiceLang === 'multi' ? null : 'en',
+            ...opts,
+          })
       : null,
     keyterms: () => keytermsFor(intentContext()),
     onTranscript: async (session, text, timing) => {

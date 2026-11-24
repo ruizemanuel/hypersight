@@ -17,6 +17,8 @@ export type Config = {
   agentPrivateKey: string | undefined;
   /** PAIRING=1: the master and a trade-only agent come from device-code pairing (/link). */
   pairing: boolean;
+  /** Speech-to-text language: English, or `multi` to let the provider detect it (Spanish too). */
+  voiceLang: 'en' | 'multi';
   /** Missing key disables the Claude intent fallback (the fast grammar still works). */
   anthropicKey: string | undefined;
   /** Missing key disables voice (every action stays reachable by tap). */
@@ -61,6 +63,11 @@ export function loadConfig(env: Env): Config {
   }
   const executor: Executor = executorRaw;
 
+  const voiceLang = get('VOICE_LANG') ?? 'en';
+  if (voiceLang !== 'en' && voiceLang !== 'multi') {
+    throw new ConfigError('VOICE_LANG must be en or multi');
+  }
+
   const portRaw = get('PORT') ?? '8787';
   const port = Number(portRaw);
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
@@ -86,6 +93,7 @@ export function loadConfig(env: Env): Config {
             'a 0x-prefixed 20-byte hex address',
           ),
     pairing,
+    voiceLang,
     agentPrivateKey:
       agentRaw === undefined
         ? undefined

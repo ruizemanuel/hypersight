@@ -153,6 +153,26 @@ describe('MarketStream', () => {
     expect(fills).toEqual([{ coin: '#271531', dir: 'Settlement' }]);
   });
 
+  it("keeps today's fills, from the snapshot and the stream, for the day recap", async () => {
+    const { stream, emit } = make();
+    await stream.start();
+    const day = Date.UTC(2026, 10, 24);
+    emit('userFills', {
+      user: USER,
+      isSnapshot: true,
+      fills: [
+        { coin: 'ETH', time: day - 60_000 },
+        { coin: 'BTC', time: day + 60_000 },
+      ],
+    });
+    emit('userFills', { user: USER, fills: [{ coin: '#271531', time: day + 120_000 }] });
+    expect(stream.todayFills(day + 3_600_000).map((f) => (f as { coin: string }).coin)).toEqual([
+      'BTC',
+      '#271531',
+    ]);
+    expect(stream.todayFills(day + 86_400_000 + 1)).toEqual([]);
+  });
+
   it('applies outcome meta updates to the catalogue and re-emits them', async () => {
     const { stream, emit } = make();
     await stream.start();

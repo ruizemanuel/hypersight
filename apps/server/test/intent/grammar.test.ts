@@ -93,6 +93,24 @@ describe('parseIntentFast', () => {
     ['Take profit on half of my ether.', { kind: 'closePerp', coin: 'ETH', fraction: 0.5 }],
     ['take profits on my sol', { kind: 'closePerp', coin: 'SOL', fraction: 1 }],
     ['how much profit am I making', { kind: 'query', topic: 'pnl' }],
+    // Spanish (rioplatense and neutral) maps to the same intents.
+    ['cerrá la mitad de mi eth', { kind: 'closePerp', coin: 'ETH', fraction: 0.5 }],
+    [
+      'comprá veinte dólares de sí en bitcoin',
+      { kind: 'buyOutcome', marketKey: 'rb:BTC:1d', sideIndex: 0, usd: 20 },
+    ],
+    ['cancelá todo', { kind: 'cancelAll' }],
+    ['¿Cuánto gano?', { kind: 'query', topic: 'pnl' }],
+    ['cierra todo mi sol', { kind: 'closePerp', coin: 'SOL', fraction: 1 }],
+    [
+      'vendé la mitad de mis hawks',
+      { kind: 'sellOutcome', marketKey: 'o:24274', sideIndex: 0, fraction: 0.5 },
+    ],
+    [
+      'comprá treinta y cinco dólares de no en bitcoin',
+      { kind: 'buyOutcome', marketKey: 'rb:BTC:1d', sideIndex: 1, usd: 35 },
+    ],
+    ['contame un chiste', null],
   ])('%s', (text, expected, ctx = base) => {
     expect(parseIntentFast(text, ctx)).toEqual(expected);
   });

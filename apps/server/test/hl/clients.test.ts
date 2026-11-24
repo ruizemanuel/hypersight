@@ -10,6 +10,7 @@ const base: Config = {
   accountAddress: '0x1111111111111111111111111111111111111111',
   agentPrivateKey: `0x${'ab'.repeat(32)}`,
   pairing: false,
+  voiceLang: 'en',
   anthropicKey: undefined,
   elevenLabsKey: undefined,
   encryptionKey: 'cd'.repeat(32),

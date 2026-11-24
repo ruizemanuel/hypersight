@@ -1,5 +1,6 @@
 import type { Intent } from '@hypersight/protocol';
 import { coinFromToken } from './aliases';
+import { fromSpanish } from './spanish';
 
 export type IntentContext = {
   perpCoins: string[];
@@ -150,9 +151,12 @@ function mergeNumberWords(tokens: string[]): string[] {
   return out;
 }
 
-/** Lowercase, currency/percent/thousands handled, punctuation removed, number words → digits. */
+/**
+ * Lowercase, Spanish rewritten into English, currency/percent/thousands handled, punctuation
+ * removed, number words → digits.
+ */
 export function tokenize(text: string): string[] {
-  let s = text.toLowerCase();
+  let s = fromSpanish(text);
   s = s.replace(/(\d),(?=\d{3}\b)/g, '$1');
   s = s.replace(/\$\s*(\d+(?:\.\d+)?)/g, '$1 dollars ');
   s = s.replace(/(\d+(?:\.\d+)?)\s*%/g, '$1 percent ');

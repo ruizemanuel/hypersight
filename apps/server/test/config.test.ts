@@ -75,6 +75,12 @@ describe('loadConfig', () => {
     expect(loadConfig(valid).pairing).toBe(false);
   });
 
+  it('transcribes English by default and lets the provider detect the language with VOICE_LANG=multi', () => {
+    expect(loadConfig(valid).voiceLang).toBe('en');
+    expect(loadConfig({ ...valid, VOICE_LANG: 'multi' }).voiceLang).toBe('multi');
+    expect(() => loadConfig({ ...valid, VOICE_LANG: 'es' })).toThrow(/VOICE_LANG/);
+  });
+
   it('rejects an unknown executor', () => {
     expect(() => loadConfig({ ...valid, EXECUTOR: 'mainnet' })).toThrow(/EXECUTOR/);
   });

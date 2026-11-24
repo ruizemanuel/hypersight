@@ -3,6 +3,7 @@ import type { AccountView, OutcomePosition, PerpPosition } from '../hl/account';
 import { outcomeCoin } from '../hl/ids';
 import type { OutcomeMarket } from '../hl/outcomes';
 import { fmtPct, fmtPrice, fmtProb, fmtSize, fmtUntil, fmtUsd } from './format';
+import type { Recap } from './recap';
 
 export type DeckInput = {
   view: AccountView;
@@ -13,6 +14,8 @@ export type DeckInput = {
   now: number;
   /** Read-only Gram (TON testnet) balance, when TON_ADDRESS is set. */
   gram?: { gram: number } | { error: string };
+  /** Today's session (absent before the first order or fill of the day). */
+  recap?: Recap;
 };
 
 const HINT_ACTIONS = 'TAP actions · HOLD speak';
@@ -181,8 +184,24 @@ export function buildDeck(input: DeckInput): CardModel[] {
     cards.push(emptyCard(watch, presets, badge));
   }
   for (const m of watch) cards.push(marketCard(m, input));
+  if (input.recap) cards.push(recapCard(input.recap, badge));
   if (input.gram) cards.push(gramCard(input.gram, badge));
   return cards;
+}
+
+function recapCard(r: Recap, badge: Badge): CardModel {
+  const lines = [`${r.trades} ${r.trades === 1 ? 'trade' : 'trades'} · ${r.filled} filled`];
+  if (r.best) lines.push(`Best: ${r.best.name} ${fmtUsd(r.best.pnlUsd, { sign: true })}`);
+  return {
+    id: 'recap',
+    kind: 'recap',
+    title: 'TODAY',
+    value: fmtUsd(r.realizedUsd, { sign: true }),
+    lines,
+    hint: HINT_NO_ACTIONS,
+    badge,
+    actions: [],
+  };
 }
 
 function gramCard(g: { gram: number } | { error: string }, badge: Badge): CardModel {

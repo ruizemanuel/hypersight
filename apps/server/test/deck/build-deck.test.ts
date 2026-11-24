@@ -95,6 +95,41 @@ describe('buildDeck', () => {
     expect(card?.lines.join(' ')).not.toContain('liq $');
   });
 
+  it("shows today's recap after the markets (before the Gram card), only once there are trades", () => {
+    expect(deck(view()).some((c) => c.kind === 'recap')).toBe(false);
+    const cards = buildDeck({
+      view: view(),
+      watch: [btcDaily],
+      mids,
+      presets: DEFAULT_PRESETS,
+      badge: 'TESTNET',
+      now: NOW,
+      recap: { trades: 4, filled: 3, realizedUsd: 63.2, best: { name: 'ETH', pnlUsd: 41.1 } },
+      gram: { gram: 1 },
+    });
+    expect(cards.map((c) => c.kind).slice(-2)).toEqual(['recap', 'gram']);
+    expect(cards.find((c) => c.kind === 'recap')).toEqual({
+      id: 'recap',
+      kind: 'recap',
+      title: 'TODAY',
+      value: '+$63.20',
+      lines: ['4 trades · 3 filled', 'Best: ETH +$41.10'],
+      hint: 'HOLD speak · swipe for cards',
+      badge: 'TESTNET',
+      actions: [],
+    });
+    const one = buildDeck({
+      view: view(),
+      watch: [],
+      mids,
+      presets: DEFAULT_PRESETS,
+      badge: 'TESTNET',
+      now: NOW,
+      recap: { trades: 1, filled: 0, realizedUsd: 0 },
+    });
+    expect(one.find((c) => c.kind === 'recap')?.lines).toEqual(['1 trade · 0 filled']);
+  });
+
   it('adds a read-only Gram card only when a balance is provided', () => {
     expect(deck(view()).some((c) => c.kind === 'gram')).toBe(false);
     const cards = buildDeck({

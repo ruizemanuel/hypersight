@@ -131,6 +131,17 @@ describe('usage', () => {
   });
 });
 
+describe('audit since', () => {
+  it("returns the entries from a time on, oldest first (today's recap)", () => {
+    const { audit } = createRepos(openDb(':memory:'));
+    for (const ts of [10, 20, 30]) {
+      audit.append({ ts, kind: 'result', proposalId: `p${ts}`, summary: 's', data: { ts } });
+    }
+    expect(audit.since(20).map((e) => e.proposalId)).toEqual(['p20', 'p30']);
+    expect(audit.since(31)).toEqual([]);
+  });
+});
+
 describe('devices and paper ledger', () => {
   it('stores paired devices by token hash and finds the latest one', () => {
     const { devices } = createRepos(openDb(':memory:'));

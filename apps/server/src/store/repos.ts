@@ -117,6 +117,25 @@ export function createRepos(db: DatabaseSync) {
         'INSERT INTO audit (ts, kind, proposal_id, summary, data) VALUES (?, ?, ?, ?, ?)',
       ).run(e.ts, e.kind, e.proposalId, e.summary, JSON.stringify(e.data ?? null));
     },
+    /** Entries from `ts` on, oldest first (today's recap). */
+    since(ts: number): AuditEntry[] {
+      const rows = db
+        .prepare('SELECT ts, kind, proposal_id, summary, data FROM audit WHERE ts >= ? ORDER BY id')
+        .all(ts) as {
+        ts: number;
+        kind: AuditEntry['kind'];
+        proposal_id: string;
+        summary: string;
+        data: string;
+      }[];
+      return rows.map((r) => ({
+        ts: r.ts,
+        kind: r.kind,
+        proposalId: r.proposal_id,
+        summary: r.summary,
+        data: JSON.parse(r.data),
+      }));
+    },
     list(limit = 50): AuditEntry[] {
       const rows = db
         .prepare('SELECT ts, kind, proposal_id, summary, data FROM audit ORDER BY id DESC LIMIT ?')

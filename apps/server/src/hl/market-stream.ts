@@ -76,6 +76,7 @@ const CATALOGUE_REFRESH_MS = 10 * 60_000;
 /** Recurring markets rotate at 03:00 UTC; settlement lands ~10 s later. */
 const ROTATION_HOUR_UTC = 3;
 const ROTATION_SETTLE_MS = 15_000;
+const DAY_MS = 86_400_000;
 
 const EMPTY_CH: ClearinghouseLike = {
   marginSummary: { accountValue: '0', totalMarginUsed: '0' },
@@ -107,6 +108,8 @@ export class MarketStream extends EventEmitter implements MarketSource {
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private deadline = Number.POSITIVE_INFINITY;
   private running = false;
+  /** Recent fills (snapshot + stream), for the day recap; trimmed to the last two days. */
+  private fills: { time: number; fill: unknown }[] = [];
 
   constructor(deps: MarketStreamDeps) {
     super();
@@ -162,7 +165,10 @@ export class MarketStream extends EventEmitter implements MarketSource {
       ),
       subs.userFills({ user }, (e) =>
         this.guard('userFills', () => {
-          if (!this.running || e?.isSnapshot || !Array.isArray(e?.fills)) return;
+          if (!this.running || !Array.isArray(e?.fills)) return;
+          this.keepFills(e.fills);
+          // The snapshot is history: only new fills are events (alerts).
+          if (e.isSnapshot) return;
           for (const f of e.fills) this.safeEmit('fill', f);
         }),
       ),
@@ -215,6 +221,21 @@ export class MarketStream extends EventEmitter implements MarketSource {
 
   mids(): Record<string, string> {
     return this.midsState;
+  }
+
+  /** Fills of `now`'s UTC day, oldest first (realized PnL for the recap card). */
+  todayFills(now: number): unknown[] {
+    const start = Math.floor(now / DAY_MS) * DAY_MS;
+    return this.fills.filter((f) => f.time >= start && f.time < start + DAY_MS).map((f) => f.fill);
+  }
+
+  private keepFills(fills: unknown[]): void {
+    for (const f of fills) {
+      const time = Number((f as { time?: unknown } | null)?.time);
+      if (Number.isFinite(time)) this.fills.push({ time, fill: f });
+    }
+    const cutoff = this.now() - 2 * DAY_MS;
+    this.fills = this.fills.filter((f) => f.time >= cutoff).sort((a, b) => a.time - b.time);
   }
 
   async book(coin: string): Promise<Book> {
