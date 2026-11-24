@@ -105,12 +105,16 @@ export function step(s: HudState, ev: HudEvent): Result {
         const source = ev.overlay.source ?? prev.source;
         return done({ ...s, overlay: { ...ev.overlay, ...(source ? { source } : {}) } });
       }
-      // A confirm replayed after a reconnect may already be dead: never offer it.
+      // A confirm replayed after a reconnect may already be dead: never offer it, and tell the
+      // server so it clears it too (an alert may be waiting behind it).
       if (
         ev.overlay?.kind === 'confirm' &&
         ev.overlay.proposal.expiresAt <= ev.at + s.clockOffset
       ) {
-        return done(prev?.kind === 'confirm' ? { ...s, overlay: null } : s);
+        return done(prev?.kind === 'confirm' ? { ...s, overlay: null } : s, {
+          type: 'send',
+          msg: { t: 'cancel', proposalId: ev.overlay.proposal.id },
+        });
       }
       return done({ ...s, overlay: ev.overlay, overlayAt: ev.at });
     }
@@ -128,7 +132,8 @@ export function step(s: HudState, ev: HudEvent): Result {
           { type: 'send', msg: { t: 'cancel', proposalId: s.overlay.proposal.id } },
         );
       }
-      if (s.overlay?.kind === 'result' && ev.now - s.overlayAt > RESULT_MS) {
+      // An unknown order outcome (CHECK POSITIONS) stays until the user taps it.
+      if (s.overlay?.kind === 'result' && !s.overlay.unknown && ev.now - s.overlayAt > RESULT_MS) {
         return done({ ...s, overlay: null }, { type: 'send', msg: { t: 'dismiss' } });
       }
       if (s.overlay?.kind === 'thinking' && s.overlay.sending) {

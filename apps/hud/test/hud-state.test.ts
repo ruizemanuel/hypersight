@@ -282,6 +282,30 @@ describe('hudReducer overlays and link status', () => {
     expect(run([{ type: 'overlay', overlay: stale, at: 4_000 }]).state.overlay).toEqual(stale);
   });
 
+  it('tells the server when it drops an expired confirm, so what waited behind it can show', () => {
+    const stale = {
+      kind: 'confirm' as const,
+      proposal: { id: 'p0', title: 'CLOSE 50% ETH LONG', lines: [], expiresAt: 5_000 },
+    };
+    expect(run([{ type: 'overlay', overlay: stale, at: 6_000 }]).effects).toEqual([
+      { type: 'send', msg: { t: 'cancel', proposalId: 'p0' } },
+    ]);
+  });
+
+  it('keeps a CHECK POSITIONS result until it is tapped (never auto-dismissed)', () => {
+    const unknown = {
+      kind: 'result' as const,
+      ok: false,
+      unknown: true as const,
+      title: 'Hyperliquid error: 504',
+      lines: ['CLOSE 50% ETH LONG'],
+    };
+    const shown = run([{ type: 'overlay', overlay: unknown, at: 1_000 }]).state;
+    const later = step(shown, { type: 'tick', now: 60_000 });
+    expect(later.state.overlay).toEqual(unknown);
+    expect(later.effects).toEqual([]);
+  });
+
   it('turns a tap that could not be sent into "Offline — nothing sent"', () => {
     expect(offlineOverlayFor({ t: 'confirm', proposalId: 'p1' })).toEqual({
       kind: 'error',

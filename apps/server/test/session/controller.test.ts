@@ -18,6 +18,7 @@ import { openDb } from '../../src/store/db';
 import { createRepos } from '../../src/store/repos';
 import { FakeExecutor } from '../../src/trade/executor';
 import { ProposalService } from '../../src/trade/proposals';
+import { VoiceRouter } from '../../src/voice/router';
 
 const T0 = Date.UTC(2026, 10, 24, 12, 0);
 const perpMeta: PerpMeta[] = [
@@ -415,6 +416,100 @@ describe('SessionController — alerts', () => {
     expect(s.overlays().at(-1)?.kind).toBe('confirm');
     await s.controller.onClientMsg(s.session, { t: 'cancel', proposalId: p.id });
     expect(s.overlays().at(-1)).toMatchObject({ kind: 'alert', title: 'ETH +5.5%' });
+  });
+});
+
+describe('SessionController — held alerts are never stranded', () => {
+  const takeHalf = {
+    ruleId: 'eth-pnl',
+    title: 'ETH +5.5%',
+    lines: ['PnL +$82.50', 'your rule: take half'],
+    action: { kind: 'closePerp' as const, coin: 'ETH', fraction: 0.5 },
+  };
+  const voiceStub = { start: () => {}, end: async () => {}, cancel: () => {}, drop: () => {} };
+  const withVoice = (s: ReturnType<typeof setup>, voice: unknown) => {
+    (s.controller as unknown as { deps: { voice: unknown } }).deps.voice = voice;
+  };
+
+  it('shows an alert at once when the confirm on screen has already expired', async () => {
+    const s = setup();
+    await s.controller.onTranscript(s.session, 'close half my eth', {});
+    s.clock.now += 16_000;
+    s.controller.alert(s.session, takeHalf);
+    expect(s.session.overlay()).toMatchObject({ kind: 'alert', title: 'ETH +5.5%' });
+  });
+
+  it('releases a held alert when its confirm expires unanswered (the device is gone)', async () => {
+    vi.useFakeTimers();
+    try {
+      const s = setup();
+      await s.controller.onTranscript(s.session, 'close half my eth', {});
+      s.controller.alert(s.session, takeHalf);
+      expect(s.session.overlay()?.kind).toBe('confirm');
+      s.clock.now += 17_000;
+      vi.advanceTimersByTime(17_000);
+      expect(s.session.overlay()).toMatchObject({ kind: 'alert', title: 'ETH +5.5%' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps a released alert when a late cancel arrives for the confirm it replaced', async () => {
+    vi.useFakeTimers();
+    try {
+      const s = setup();
+      await s.controller.onTranscript(s.session, 'close half my eth', {});
+      const p = confirmOf(s.overlays().at(-1));
+      s.controller.alert(s.session, takeHalf);
+      s.clock.now += 17_000;
+      vi.advanceTimersByTime(17_000);
+      await s.controller.onClientMsg(s.session, { t: 'cancel', proposalId: p.id });
+      expect(s.session.overlay()).toMatchObject({ kind: 'alert', title: 'ETH +5.5%' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('releases a held alert when the user abandons the voice step (2×TAP)', async () => {
+    const s = setup();
+    withVoice(s, voiceStub);
+    s.session.send({ t: 'overlay', overlay: { kind: 'listening', transcript: 'close' } });
+    s.controller.alert(s.session, takeHalf);
+    await s.controller.onClientMsg(s.session, { t: 'voice', phase: 'cancel' });
+    expect(s.session.overlay()).toMatchObject({ kind: 'alert', title: 'ETH +5.5%' });
+  });
+
+  it('leaves a held alert in the snapshot when the device drops while listening', async () => {
+    const s = setup();
+    withVoice(s, voiceStub);
+    s.session.send({ t: 'overlay', overlay: { kind: 'listening', transcript: 'close' } });
+    s.controller.alert(s.session, takeHalf);
+    s.controller.onDetach(s.session);
+    const replay = s.session.snapshot().filter((m) => m.t === 'overlay');
+    expect(replay.at(-1)).toMatchObject({ overlay: { kind: 'alert', title: 'ETH +5.5%' } });
+  });
+
+  it('keeps a result on screen when the device drops (the voice router does not clear it)', async () => {
+    const s = setup();
+    withVoice(
+      s,
+      new VoiceRouter({ factory: null, keyterms: () => [], onTranscript: async () => {} }),
+    );
+    s.session.send({
+      t: 'overlay',
+      overlay: { kind: 'result', ok: true, title: 'Filled', lines: [] },
+    });
+    s.controller.onDetach(s.session);
+    expect(s.session.overlay()).toMatchObject({ kind: 'result', title: 'Filled' });
+  });
+
+  it('drops a held alert that is too old to matter once the user is free', async () => {
+    const s = setup();
+    s.session.send({ t: 'overlay', overlay: { kind: 'thinking' } });
+    s.controller.alert(s.session, takeHalf);
+    s.clock.now += 6 * 60_000;
+    await s.controller.onClientMsg(s.session, { t: 'dismiss' });
+    expect(s.session.overlay()).toBeNull();
   });
 });
 

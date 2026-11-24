@@ -29,7 +29,7 @@ export type ControllerDeps = {
   /** Lines for the menu's mode screen (agent validity, limits). */
   modeInfo: () => Promise<string[]>;
   /** Streams audio to speech-to-text; absent in tests that feed transcripts directly. */
-  voice?: { start(s: Session): void; end(s: Session): Promise<void>; cancel(s: Session): void };
+  voice?: { start(s: Session): void; end(s: Session): Promise<void>; drop(s: Session): void };
   badge?: Badge;
   log?: (msg: string, err?: unknown) => void;
   now?: () => number;
@@ -45,13 +45,19 @@ type DeviceState = {
   /** Generation when the current utterance ended: a dismiss during speech-to-text drops it. */
   utterance?: number;
   /** An alert that arrived while the user was busy (confirm, listening, thinking). */
-  pendingAlert?: Overlay;
+  pendingAlert?: { overlay: Overlay; at: number };
+  /** Shows the held alert when the confirm it waits behind expires unanswered. */
+  releaseTimer?: ReturnType<typeof setTimeout>;
 };
 
 /** "buy 20 dollars of yes" right after "odds on …?" refers to that market for this long. */
 const ODDS_FOCUS_MS = 120_000;
 const HEARD_MAX = 100;
 const PRICE_MOVED = 'Price moved — review again';
+/** A held alert older than this is dropped instead of shown (it is no longer news). */
+const PENDING_ALERT_MAX_MS = 5 * 60_000;
+/** The HUD auto-cancels an expired confirm itself; the server only steps in after this grace. */
+const RELEASE_GRACE_MS = 1_000;
 
 const sideLabel = (side: string) => (/^(yes|no)$/i.test(side) ? side.toUpperCase() : side);
 const okStatus = (r: ExecResult) =>
@@ -96,11 +102,12 @@ export class SessionController {
   onDetach(session: Session): void {
     // A voice answer still being resolved must not land a confirm the user never saw.
     this.device(session).gen++;
-    this.deps.voice?.cancel(session);
+    this.deps.voice?.drop(session);
     const o = session.overlay();
     // An executing order stays visible: a reconnecting device must see it is still in flight.
+    // Clearing goes through show(): an alert held behind the voice step lands in the snapshot.
     if (o?.kind === 'listening' || (o?.kind === 'thinking' && !o.sending)) {
-      session.send({ t: 'overlay', overlay: null });
+      this.show(session, null);
     }
   }
 
@@ -121,12 +128,37 @@ export class SessionController {
           }
         : {}),
     };
-    const busy = session.overlay()?.kind;
-    if (busy === 'confirm' || busy === 'listening' || busy === 'thinking') {
-      dev.pendingAlert = overlay;
+    if (this.busy(session.overlay())) {
+      dev.pendingAlert = { overlay, at: this.now() };
+      this.armRelease(session, dev);
       return;
     }
     this.show(session, overlay);
+  }
+
+  /** A live confirm or a voice step in progress: an alert must not cover it. */
+  private busy(o: Overlay | null): boolean {
+    if (o?.kind === 'confirm') return o.proposal.expiresAt > this.now();
+    return o?.kind === 'listening' || o?.kind === 'thinking';
+  }
+
+  /**
+   * While an alert waits behind a confirm, clears that confirm once it has expired: a device that
+   * went away cannot auto-cancel it, and the alert would otherwise wait forever.
+   */
+  private armRelease(session: Session, dev: DeviceState): void {
+    if (dev.releaseTimer) clearTimeout(dev.releaseTimer);
+    delete dev.releaseTimer;
+    const o = session.overlay();
+    if (!dev.pendingAlert || o?.kind !== 'confirm') return;
+    const id = o.proposal.id;
+    const delay = Math.max(0, o.proposal.expiresAt - this.now()) + RELEASE_GRACE_MS;
+    dev.releaseTimer = setTimeout(() => {
+      delete dev.releaseTimer;
+      const current = session.overlay();
+      if (current?.kind === 'confirm' && current.proposal.id === id) this.show(session, null);
+    }, delay);
+    dev.releaseTimer.unref?.();
   }
 
   metrics(): Metrics {
@@ -141,11 +173,16 @@ export class SessionController {
         return this.onCardAction(session, msg.cardId, msg.actionId);
       case 'confirm':
         return this.onConfirm(session, msg.proposalId);
-      case 'cancel':
-        dev.gen++;
+      case 'cancel': {
         this.deps.proposals.cancel(msg.proposalId);
+        // A late cancel (the card already gave way to something newer) leaves that newer thing.
+        const o = session.overlay();
+        if (o?.kind === 'confirm' && o.proposal.id !== msg.proposalId) return;
+        if (o !== null && o.kind !== 'confirm') return;
+        dev.gen++;
         this.show(session, null);
         return;
+      }
       case 'dismiss':
         dev.gen++;
         this.show(session, null);
@@ -161,8 +198,10 @@ export class SessionController {
           dev.utterance = dev.gen;
           await this.deps.voice?.end(session);
         } else {
+          // 2×TAP while listening: nothing is transcribed and the voice step is cleared.
           dev.gen++;
-          this.deps.voice?.cancel(session);
+          this.deps.voice?.drop(session);
+          this.show(session, null);
         }
         return;
       default:
@@ -384,10 +423,14 @@ export class SessionController {
     if (overlay === null && dev.pendingAlert) {
       const pending = dev.pendingAlert;
       delete dev.pendingAlert;
-      session.send({ t: 'overlay', overlay: pending });
-      return;
+      if (this.now() - pending.at <= PENDING_ALERT_MAX_MS) {
+        session.send({ t: 'overlay', overlay: pending.overlay });
+        this.armRelease(session, dev);
+        return;
+      }
     }
     session.send({ t: 'overlay', overlay });
+    this.armRelease(session, dev);
   }
 
   private device(session: Session): DeviceState {

@@ -78,13 +78,10 @@ export class VoiceRouter {
     await this.deps.onTranscript(session, text, { sttMs });
   }
 
-  /** The user abandoned the utterance (2×TAP, exit, disconnect): nothing is transcribed. */
-  cancel(session: Session): void {
-    this.drop(session);
-    session.send({ t: 'overlay', overlay: null });
-  }
-
-  /** Abandons the session's utterance (detach, replaced connection). */
+  /**
+   * Abandons the session's utterance (2×TAP, detach, replaced connection): nothing is transcribed.
+   * The overlay is the controller's to clear (it may hold an alert to show next).
+   */
   drop(session: Session): void {
     const entry = this.active.get(session);
     if (!entry) return;
