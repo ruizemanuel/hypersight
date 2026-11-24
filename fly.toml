@@ -8,6 +8,9 @@ primary_region = 'gru'
 [env]
   PORT = '8787'
   DB_PATH = '/data/hypersight.sqlite'
+  # Glasses pair with a code (/link); HL_ACCOUNT_ADDRESS (a secret) pins the only account.
+  PAIRING = '1'
+  VOICE_LANG = 'multi'
   # Rate limits key on the client address the Fly proxy sets (every socket is the proxy's).
   CLIENT_IP_HEADER = 'Fly-Client-IP'
 
