@@ -46,11 +46,24 @@ function fitLine(text: string, width: number): string {
   return getTextWidth(flat) <= width ? flat : pxTruncate(flat, width);
 }
 
-/** `TITLE · BADGE · 2/4`: the title is cut so the badge and position always show. */
+const SPACE_WIDTH = getTextWidth(' ');
+
+/**
+ * `TITLE      BADGE · 2/4`: the title on the left, the suffix flush with the right edge. The
+ * firmware only aligns left, so the gap is padded with spaces measured with the glasses font;
+ * the title is cut so the suffix always shows.
+ */
 function header(title: string, suffix: string, width: number): string {
-  const tail = ` · ${suffix}`;
-  const room = width - getTextWidth(tail);
-  return `${fitLine(title, room)}${tail}`;
+  const suffixWidth = getTextWidth(suffix);
+  const left = fitLine(title, width - suffixWidth - 2 * SPACE_WIDTH);
+  let gap = Math.max(2, Math.floor((width - getTextWidth(left) - suffixWidth) / SPACE_WIDTH));
+  let text = `${left}${' '.repeat(gap)}${suffix}`;
+  // Kerning can make the whole line a pixel wider than its parts: never let it wrap.
+  while (gap > 2 && getTextWidth(text) > width) {
+    gap -= 1;
+    text = `${left}${' '.repeat(gap)}${suffix}`;
+  }
+  return text;
 }
 
 type Skeleton = { hdr: string; val: string; body: string; ftr: string };
@@ -138,7 +151,7 @@ export function layoutOverlay(
   opts: { badge?: Badge; shownAt?: number } = {},
 ): PageSpec {
   const badge = opts.badge ?? 'TESTNET';
-  const hdr = (label: string) => fitLine(`${label} · ${badge}`, HDR_WIDTH);
+  const hdr = (label: string) => header(label, badge, HDR_WIDTH);
   switch (o.kind) {
     case 'listening': {
       const elapsed = Math.max(0, Math.floor((now - (opts.shownAt ?? now)) / 1000));

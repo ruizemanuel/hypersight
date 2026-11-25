@@ -351,8 +351,8 @@ describe('pageFor', () => {
     const val = (s: HudState) => pageFor(s, 0).texts.find((t) => t.name === 'val')?.text;
     expect(val({ ...initialHudState })).toBe('Connecting…');
     const withDeck = run([{ type: 'deck', cards: deck }, { type: 'down' }]).state;
-    expect(pageFor(withDeck, 0).texts.find((t) => t.name === 'hdr')?.text).toBe(
-      'PERP:ETH · TESTNET · 2/3',
+    expect(pageFor(withDeck, 0).texts.find((t) => t.name === 'hdr')?.text).toMatch(
+      /^PERP:ETH {2,}TESTNET · 2\/3$/,
     );
     expect(pageFor(hudReducer(withDeck, { type: 'tap' }), 0).layoutKey).toBe('actions');
     expect(val({ ...withDeck, status: 'replaced' })).toBe('Opened on another device');
@@ -386,7 +386,7 @@ describe('pageFor', () => {
     ).state;
     expect(hdr(cachedThenOpen)).toContain('offline');
     const fresh = hudReducer(cachedThenOpen, { type: 'deck', cards: deck });
-    expect(hdr(fresh)).toBe('ACCOUNT · TESTNET · 1/3');
+    expect(hdr(fresh)).toMatch(/^ACCOUNT {2,}TESTNET · 1\/3$/);
   });
 });
 

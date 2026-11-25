@@ -1,4 +1,4 @@
-import { measureTextWrap } from '@evenrealities/pretext';
+import { getTextWidth, measureTextWrap } from '@evenrealities/pretext';
 import type { CardModel, Overlay } from '@hypersight/protocol';
 import { describe, expect, it } from 'vitest';
 import {
@@ -100,12 +100,24 @@ function checkFits(page: PageSpec): void {
   expect(page.texts.length + (page.list ? 1 : 0)).toBeLessThanOrEqual(12);
 }
 
+/** Header: `left` at the left edge, `suffix` flush with the right edge, only spaces between. */
+function expectRightAligned(text: string | undefined, left: string, suffix: string): void {
+  const t = text ?? '';
+  expect(t.startsWith(left)).toBe(true);
+  expect(t.endsWith(suffix)).toBe(true);
+  expect(t.slice(left.length, t.length - suffix.length)).toMatch(/^ {2,}$/);
+  const width = getTextWidth(t);
+  expect(width).toBeLessThanOrEqual(576 - 8);
+  expect(width).toBeGreaterThan(576 - 8 - getTextWidth(' '));
+}
+
 describe('layoutCard', () => {
   it('lays out a card in the header / value box / body / footer skeleton', () => {
     const page = layoutCard(ethCard, 1, 4);
     expect(page.layoutKey).toBe('card');
     const byName = Object.fromEntries(page.texts.map((t) => [t.name, t]));
-    expect(byName.hdr?.text).toBe('ETH LONG 2× · TESTNET · 2/4');
+    // Title on the left, badge and position on the right (as Even's own screens do).
+    expectRightAligned(byName.hdr?.text, 'ETH LONG 2×', 'TESTNET · 2/4');
     expect(byName.val).toMatchObject({
       text: '+$42.10 (+3.1%)',
       color: 4,
@@ -120,14 +132,22 @@ describe('layoutCard', () => {
   it('truncates every overlong text to fit its container', () => {
     const page = layoutCard(longCard, 9, 12);
     checkFits(page);
-    expect(page.texts.find((t) => t.name === 'hdr')?.text.endsWith(' · TESTNET · 10/12')).toBe(
-      true,
-    );
+    const hdr = page.texts.find((t) => t.name === 'hdr')?.text ?? '';
+    expect(hdr.endsWith('  TESTNET · 10/12')).toBe(true);
+    expect(getTextWidth(hdr)).toBeLessThanOrEqual(576 - 8);
   });
 
   it('marks the header offline instead of the position when disconnected', () => {
     const page = layoutCard(ethCard, 0, 4, { offline: true });
-    expect(page.texts.find((t) => t.name === 'hdr')?.text).toBe('ETH LONG 2× · TESTNET · offline');
+    const hdr = page.texts.find((t) => t.name === 'hdr')?.text;
+    expectRightAligned(hdr, 'ETH LONG 2×', 'TESTNET · offline');
+  });
+
+  it('keeps the badge on the right of the actions list and overlay headers too', () => {
+    const actionsHdr = layoutActions(ethCard).texts.find((t) => t.name === 'hdr')?.text;
+    expectRightAligned(actionsHdr, 'ETH LONG 2×', 'TESTNET');
+    const confirm = layoutOverlay(overlays[3] as Overlay, NOW, { badge: 'TESTNET', shownAt: NOW });
+    expectRightAligned(confirm.texts.find((t) => t.name === 'hdr')?.text, 'CONFIRM', 'TESTNET');
   });
 });
 
