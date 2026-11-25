@@ -12,7 +12,7 @@ export type ApiStatus = {
 };
 
 export type ApiDeps = {
-  repos: Pick<Repos, 'settings' | 'watch' | 'rules' | 'audit'>;
+  repos: Pick<Repos, 'settings' | 'watch' | 'rules' | 'audit' | 'telegramChats'>;
   catalogue: Pick<Catalogue, 'search' | 'byKey'>;
   status: () => ApiStatus;
   /** Settings or watchlist changed: push a fresh deck to the glasses. */
@@ -27,6 +27,9 @@ const SettingsPatchSchema = z
   })
   .strict();
 const WatchBodySchema = z.object({ key: z.string().min(1).max(64) });
+const TelegramChatPatchSchema = z
+  .object({ follow: z.boolean().optional(), replyFills: z.boolean().optional() })
+  .strict();
 
 const MARKETS_MAX = 10;
 const HISTORY_DEFAULT = 50;
@@ -104,6 +107,24 @@ export function createApi(deps: ApiDeps): Hono {
     const n = Number.parseInt(c.req.query('limit') ?? '', 10);
     const limit = Number.isFinite(n) ? Math.min(Math.max(n, 1), HISTORY_MAX) : HISTORY_DEFAULT;
     return c.json(deps.repos.audit.list(limit));
+  });
+
+  api.get('/telegram/chats', (c) => c.json(deps.repos.telegramChats.list()));
+  api.put('/telegram/chats/:id', async (c) => {
+    const raw = c.req.param('id');
+    const id = /^-?\d{1,16}$/.test(raw) ? Number(raw) : Number.NaN;
+    if (!Number.isSafeInteger(id) || !deps.repos.telegramChats.get(id)) {
+      return c.json({ error: 'Unknown chat' }, 404);
+    }
+    const parsed = TelegramChatPatchSchema.safeParse(await jsonBody(c.req));
+    if (!parsed.success) return c.json({ error: 'Invalid chat settings' }, 400);
+    const { follow, replyFills } = parsed.data;
+    return c.json(
+      deps.repos.telegramChats.set(id, {
+        ...(follow !== undefined ? { follow } : {}),
+        ...(replyFills !== undefined ? { replyFills } : {}),
+      }),
+    );
   });
 
   api.get('/status', (c) => c.json(deps.status()));

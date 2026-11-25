@@ -155,4 +155,45 @@ describe('companion API', () => {
       latency: { sttMs: 230, intentMs: 1, execMs: 1482 },
     });
   });
+
+  it('lists the Telegram chats the bot has seen, most recent first', async () => {
+    const { call, repos } = setup();
+    repos.telegramChats.seen({ id: -100, title: 'Alpha calls', type: 'supergroup' }, 1000);
+    repos.telegramChats.seen({ id: 5, title: 'Eve', type: 'private' }, 2000);
+    const res = await call('/api/telegram/chats');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([
+      { id: 5, title: 'Eve', type: 'private', follow: false, replyFills: false, seenAt: 2000 },
+      {
+        id: -100,
+        title: 'Alpha calls',
+        type: 'supergroup',
+        follow: false,
+        replyFills: false,
+        seenAt: 1000,
+      },
+    ]);
+  });
+
+  it('follows a Telegram chat and turns on fill replies from the phone', async () => {
+    const { call, repos } = setup();
+    repos.telegramChats.seen({ id: -100, title: 'Alpha calls', type: 'supergroup' }, 1000);
+    const res = await call('/api/telegram/chats/-100', { method: 'PUT', body: { follow: true } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ id: -100, follow: true, replyFills: false });
+    await call('/api/telegram/chats/-100', { method: 'PUT', body: { replyFills: true } });
+    expect(repos.telegramChats.get(-100)).toMatchObject({ follow: true, replyFills: true });
+  });
+
+  it('refuses a bad Telegram toggle body or an unknown chat', async () => {
+    const { call, repos } = setup();
+    repos.telegramChats.seen({ id: -100, title: 'Alpha calls', type: 'supergroup' }, 1000);
+    const put = (path: string, body: unknown) => call(path, { method: 'PUT', body });
+    expect((await put('/api/telegram/chats/-100', { follow: 'yes' })).status).toBe(400);
+    expect((await put('/api/telegram/chats/-100', { follow: true, title: 'x' })).status).toBe(400);
+    expect((await put('/api/telegram/chats/-100', 'nope')).status).toBe(400);
+    expect((await put('/api/telegram/chats/7', { follow: true })).status).toBe(404);
+    expect((await put('/api/telegram/chats/abc', { follow: true })).status).toBe(404);
+    expect(repos.telegramChats.get(-100)).toMatchObject({ follow: false, title: 'Alpha calls' });
+  });
 });

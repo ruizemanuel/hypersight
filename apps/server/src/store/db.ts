@@ -43,6 +43,17 @@ const MIGRATIONS: string[] = [
     ('default-liq', '{"id":"default-liq","kind":"liqDistance","params":{"pct":10},"cooldownMs":600000,"enabled":true}'),
     ('default-settled', '{"id":"default-settled","kind":"settled","params":{},"cooldownMs":0,"enabled":true}');
   `,
+  // Telegram chats the bot is in. Message text is never stored.
+  `
+  CREATE TABLE telegram_chats (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    type TEXT NOT NULL,
+    follow INTEGER NOT NULL DEFAULT 0,
+    reply_fills INTEGER NOT NULL DEFAULT 0,
+    seen_at INTEGER NOT NULL
+  );
+  `,
 ];
 
 /** Opens (creating directories as needed) and migrates the database. `':memory:'` for tests. */

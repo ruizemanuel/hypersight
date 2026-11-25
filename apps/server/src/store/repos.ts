@@ -34,6 +34,34 @@ export type DeviceRecord = {
 
 export type PaperFill = { ts: number; coin: string; isBuy: boolean; sz: number; px: number };
 
+/** A Telegram chat the bot is in; only followed chats can raise glasses alerts. */
+export type TelegramChat = {
+  id: number;
+  title: string;
+  type: string;
+  follow: boolean;
+  replyFills: boolean;
+  seenAt: number;
+};
+
+type TelegramChatRow = {
+  id: number;
+  title: string;
+  type: string;
+  follow: number;
+  reply_fills: number;
+  seen_at: number;
+};
+
+const chatOf = (r: TelegramChatRow): TelegramChat => ({
+  id: r.id,
+  title: r.title,
+  type: r.type,
+  follow: r.follow === 1,
+  replyFills: r.reply_fills === 1,
+  seenAt: r.seen_at,
+});
+
 const DAY_MS = 86_400_000;
 
 /** Merges stored settings over the defaults so new fields get defaults; always returns a copy. */
@@ -246,7 +274,43 @@ export function createRepos(db: DatabaseSync) {
     },
   };
 
-  return { settings, watch, rules, audit, usage, devices, ledger };
+  const telegramChats = {
+    /** Records (or refreshes) a chat the bot saw a message in; its toggles are kept. */
+    seen(c: { id: number; title: string; type: string }, at: number): TelegramChat {
+      db.prepare(
+        `INSERT INTO telegram_chats (id, title, type, seen_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET title = excluded.title, type = excluded.type,
+         seen_at = excluded.seen_at`,
+      ).run(c.id, c.title, c.type, at);
+      return telegramChats.get(c.id) as TelegramChat;
+    },
+    get(id: number): TelegramChat | undefined {
+      const r = db.prepare('SELECT * FROM telegram_chats WHERE id = ?').get(id) as
+        | TelegramChatRow
+        | undefined;
+      return r ? chatOf(r) : undefined;
+    },
+    list(): TelegramChat[] {
+      const rows = db
+        .prepare('SELECT * FROM telegram_chats ORDER BY seen_at DESC, id')
+        .all() as TelegramChatRow[];
+      return rows.map(chatOf);
+    },
+    set(id: number, patch: { follow?: boolean; replyFills?: boolean }): TelegramChat | undefined {
+      const current = telegramChats.get(id);
+      if (!current) return undefined;
+      const follow = patch.follow ?? current.follow;
+      const replyFills = patch.replyFills ?? current.replyFills;
+      db.prepare('UPDATE telegram_chats SET follow = ?, reply_fills = ? WHERE id = ?').run(
+        follow ? 1 : 0,
+        replyFills ? 1 : 0,
+        id,
+      );
+      return { ...current, follow, replyFills };
+    },
+  };
+
+  return { settings, watch, rules, audit, usage, devices, ledger, telegramChats };
 }
 
 export type Repos = ReturnType<typeof createRepos>;

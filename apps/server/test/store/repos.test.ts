@@ -63,7 +63,7 @@ describe('migrations', () => {
     expect(createRepos(db2).watch.list()).toEqual(['rb:BTC:1d']);
     expect(
       (db2.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-    ).toBe(2);
+    ).toBe(3);
     db2.close();
   });
 });
@@ -174,5 +174,72 @@ describe('devices and paper ledger', () => {
       { ts: 1, coin: '#273210', isBuy: true, sz: 40, px: 0.62 },
       { ts: 2, coin: 'ETH', isBuy: false, sz: 0.25, px: 3411 },
     ]);
+  });
+});
+
+describe('telegram chats', () => {
+  const alpha = { id: -1001234567890, title: 'Alpha calls', type: 'supergroup' };
+
+  it('remembers a chat the bot sees, not followed and not replying by default', () => {
+    const { telegramChats } = createRepos(openDb(':memory:'));
+    expect(telegramChats.seen(alpha, 1000)).toEqual({
+      ...alpha,
+      follow: false,
+      replyFills: false,
+      seenAt: 1000,
+    });
+    expect(telegramChats.get(alpha.id)?.title).toBe('Alpha calls');
+    expect(telegramChats.get(42)).toBeUndefined();
+  });
+
+  it('keeps the toggles when the chat is seen again under a new title', () => {
+    const { telegramChats } = createRepos(openDb(':memory:'));
+    telegramChats.seen(alpha, 1000);
+    telegramChats.set(alpha.id, { follow: true });
+    expect(telegramChats.seen({ ...alpha, title: 'Alpha calls VIP' }, 2000)).toEqual({
+      ...alpha,
+      title: 'Alpha calls VIP',
+      follow: true,
+      replyFills: false,
+      seenAt: 2000,
+    });
+  });
+
+  it('changes one toggle at a time and refuses an unknown chat', () => {
+    const { telegramChats } = createRepos(openDb(':memory:'));
+    telegramChats.seen(alpha, 1000);
+    telegramChats.set(alpha.id, { follow: true });
+    expect(telegramChats.set(alpha.id, { replyFills: true })).toMatchObject({
+      follow: true,
+      replyFills: true,
+    });
+    expect(telegramChats.set(alpha.id, { follow: false })).toMatchObject({
+      follow: false,
+      replyFills: true,
+    });
+    expect(telegramChats.set(7, { follow: true })).toBeUndefined();
+    expect(telegramChats.get(7)).toBeUndefined();
+  });
+
+  it('lists the most recently seen chat first', () => {
+    const { telegramChats } = createRepos(openDb(':memory:'));
+    telegramChats.seen(alpha, 1000);
+    telegramChats.seen({ id: 5, title: 'Eve', type: 'private' }, 3000);
+    telegramChats.seen({ id: -200, title: 'Signals', type: 'channel' }, 2000);
+    expect(telegramChats.list().map((c) => c.id)).toEqual([5, -200, alpha.id]);
+  });
+
+  it('keeps chats and toggles across reopening the file', () => {
+    const file = tempFile();
+    const db1 = openDb(file);
+    createRepos(db1).telegramChats.seen(alpha, 1000);
+    createRepos(db1).telegramChats.set(alpha.id, { follow: true, replyFills: true });
+    db1.close();
+    const db2 = openDb(file);
+    expect(createRepos(db2).telegramChats.get(alpha.id)).toMatchObject({
+      follow: true,
+      replyFills: true,
+    });
+    db2.close();
   });
 });
