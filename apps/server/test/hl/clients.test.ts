@@ -21,6 +21,7 @@ const base: Config = {
   intentModel: 'claude-opus-5-5',
   tonAddress: undefined,
   clientIpHeader: undefined,
+  telegramToken: undefined,
 };
 
 describe('createHlClients', () => {

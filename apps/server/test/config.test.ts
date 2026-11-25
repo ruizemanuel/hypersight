@@ -84,6 +84,12 @@ describe('loadConfig', () => {
     );
   });
 
+  it('turns the Telegram bot on only when TELEGRAM_BOT_TOKEN is set', () => {
+    expect(loadConfig(valid).telegramToken).toBeUndefined();
+    expect(loadConfig({ ...valid, TELEGRAM_BOT_TOKEN: '' }).telegramToken).toBeUndefined();
+    expect(loadConfig({ ...valid, TELEGRAM_BOT_TOKEN: ' 123:abc ' }).telegramToken).toBe('123:abc');
+  });
+
   it('transcribes English by default and lets the provider detect the language with VOICE_LANG=multi', () => {
     expect(loadConfig(valid).voiceLang).toBe('en');
     expect(loadConfig({ ...valid, VOICE_LANG: 'multi' }).voiceLang).toBe('multi');

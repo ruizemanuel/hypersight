@@ -33,6 +33,8 @@ export type Config = {
   tonAddress: string | undefined;
   /** Lower-cased header a trusted proxy sets to the client address (Fly-Client-IP on Fly.io). */
   clientIpHeader: string | undefined;
+  /** Missing token disables Telegram signals. */
+  telegramToken: string | undefined;
 };
 
 const TESTNET_API = 'https://api.hyperliquid-testnet.xyz';
@@ -133,6 +135,7 @@ export function loadConfig(env: Env): Config {
     intentModel: get('INTENT_MODEL') ?? 'claude-opus-5-5',
     tonAddress: get('TON_ADDRESS'),
     clientIpHeader: get('CLIENT_IP_HEADER')?.toLowerCase(),
+    telegramToken: get('TELEGRAM_BOT_TOKEN'),
   };
 }
 
