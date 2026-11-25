@@ -6,6 +6,8 @@ export type TgMessage = {
   messageId: number;
   from: string;
   text: string;
+  /** When the message was first sent (an edit keeps it), ms since epoch. */
+  sentAt: number;
 };
 
 export type TgUpdate = { updateId: number; message?: TgMessage };
@@ -33,7 +35,8 @@ export class TelegramError extends Error {
 type RawChat = { id: number; type: string; title?: string; username?: string; first_name?: string };
 type RawMessage = {
   message_id: number;
-  chat: RawChat;
+  date?: number;
+  chat?: RawChat;
   from?: { username?: string; first_name?: string };
   text?: string;
   caption?: string;
@@ -52,9 +55,12 @@ function chatTitle(chat: RawChat): string {
   return chat.title ?? chat.username ?? chat.first_name ?? String(chat.id);
 }
 
+/** A text message, or undefined for anything else (stickers, service messages, malformed). */
 function toMessage(raw: RawMessage | undefined): TgMessage | undefined {
   const text = raw?.text ?? raw?.caption;
-  if (!raw || !text) return undefined;
+  if (!raw || typeof text !== 'string' || !text || !raw.chat || typeof raw.date !== 'number') {
+    return undefined;
+  }
   const title = chatTitle(raw.chat);
   return {
     chatId: raw.chat.id,
@@ -63,6 +69,7 @@ function toMessage(raw: RawMessage | undefined): TgMessage | undefined {
     messageId: raw.message_id,
     from: raw.from?.username ?? raw.from?.first_name ?? title,
     text,
+    sentAt: raw.date * 1000,
   };
 }
 
@@ -92,10 +99,16 @@ export function createTelegramApi(token: string, fetchFn: typeof fetch = fetch):
         { offset, timeout: timeoutSec, allowed_updates: ALLOWED_UPDATES },
         (timeoutSec + 10) * 1000,
       );
+      // One odd update must never stop the offset from moving past it.
       return raw.map((u) => {
-        const message = toMessage(
-          u.message ?? u.edited_message ?? u.channel_post ?? u.edited_channel_post,
-        );
+        let message: TgMessage | undefined;
+        try {
+          message = toMessage(
+            u.message ?? u.edited_message ?? u.channel_post ?? u.edited_channel_post,
+          );
+        } catch {
+          message = undefined;
+        }
         return message ? { updateId: u.update_id, message } : { updateId: u.update_id };
       });
     },

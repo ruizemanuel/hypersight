@@ -45,6 +45,8 @@ describe('parseSignal', () => {
     ],
     ['closing half my eth', { kind: 'closePerp', coin: 'ETH', fraction: 0.5 }],
     ['selling my hawks', { kind: 'sellOutcome', marketKey: 'o:24274', sideIndex: 0, fraction: 1 }],
+    ['eth long closed +12%', { kind: 'closePerp', coin: 'ETH', fraction: 1 }],
+    ['compro sí en bitcoin', { kind: 'buyOutcome', marketKey: 'rb:BTC:1d', sideIndex: 0, usd: 10 }],
   ])('reads %j as a trade', (text, want) => {
     expect(parseSignal(text, ctx, DEFAULT_PRESETS)).toEqual(want);
   });
@@ -104,6 +106,22 @@ describe('parseSignal', () => {
     ['gm everyone', 'chatter'],
     ['what are the odds on the fed', 'a question'],
     ['long eth short btc', 'two trades'],
+    ['should I long eth?', 'a question'],
+    ['Who is longing ETH', 'a question without a question mark'],
+    ['¿longeo eth?', 'a question (Spanish)'],
+    ['BTC short-term bullish', 'an idiom (short-term)'],
+    ['eth short term bounce likely', 'an idiom (short term)'],
+    ['ETH short squeeze incoming', 'an idiom (short squeeze)'],
+    ['eth long squeeze', 'an idiom (long squeeze)'],
+    ['long live bitcoin', 'an idiom (long live)'],
+    ['avoid longing eth here', 'advice against it'],
+    ['I would avoid shorting sol', 'advice against it'],
+    ['evitaría longear eth', 'advice against it (Spanish)'],
+    ['ETH LONG SL hit', 'a status update'],
+    ['ETH long TP1 hit 2600 ✅', 'a status update'],
+    ['BTC short above 62000 invalidated', 'a status update'],
+    ['long eth if it holds 2400', 'a conditional call'],
+    ['si btc rompe 62k compro yes', 'a conditional call (Spanish)'],
   ])('ignores %j (%s)', (text) => {
     expect(parseSignal(text, ctx, DEFAULT_PRESETS)).toBeNull();
   });

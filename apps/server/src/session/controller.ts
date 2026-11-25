@@ -97,6 +97,8 @@ export class SessionController {
   private readonly devices = new WeakMap<Session, DeviceState>();
   private last: Metrics = {};
   private readonly now: () => number;
+  /** Makes alert action ids unique when several alerts are raised in the same millisecond. */
+  private alertSeq = 0;
   /** Alert action id → the chat message it came from. */
   private readonly actionOrigins = new Map<string, SignalOrigin>();
   /** Proposal id → the chat message its trade came from. */
@@ -127,7 +129,7 @@ export class SessionController {
   /** Shows an alert, or holds it until the confirm/voice step on screen is answered. */
   alert(session: Session, ev: AlertEvent): void {
     const dev = this.device(session);
-    const actionId = `al${this.now().toString(36)}`;
+    const actionId = `al${this.now().toString(36)}.${(++this.alertSeq).toString(36)}`;
     if (ev.action && ev.origin) remember(this.actionOrigins, actionId, ev.origin);
     const overlay: Overlay = {
       kind: 'alert',

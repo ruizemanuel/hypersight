@@ -480,6 +480,54 @@ describe('SessionController — trades from chat signals', () => {
     }
   });
 
+  it('keeps each signal with its own chat when two alerts arrive in the same millisecond', async () => {
+    const onSignalFilled = vi.fn();
+    const s = setup({ onSignalFilled });
+    // The clock stands still: both alerts are raised at the same instant.
+    s.controller.alert(s.session, signal);
+    s.controller.alert(s.session, {
+      ...signal,
+      key: 'tg:-200:9',
+      title: 'TELEGRAM · Other room',
+      action: { kind: 'closePerp', coin: 'ETH', fraction: 1 },
+      origin: { chatId: -200, messageId: 9 },
+    });
+    const shown = s.overlays().at(-1);
+    if (shown?.kind !== 'alert' || !shown.action) throw new Error('expected an alert action');
+    expect(shown.title).toBe('TELEGRAM · Alpha calls');
+    await s.controller.onClientMsg(s.session, {
+      t: 'action',
+      cardId: 'alert',
+      actionId: shown.action.id,
+    });
+    const p = confirmOf(s.overlays().at(-1));
+    await s.controller.onClientMsg(s.session, { t: 'confirm', proposalId: p.id });
+    expect(onSignalFilled).toHaveBeenCalledWith(origin, 'Close 50% of ETH · Filled');
+  });
+
+  it('never gives a chat origin to a rule alert raised in the same millisecond', async () => {
+    const onSignalFilled = vi.fn();
+    const s = setup({ onSignalFilled });
+    s.controller.alert(s.session, {
+      ruleId: 'eth-pnl',
+      title: 'ETH +5.5%',
+      lines: ['your rule: take half'],
+      action: { kind: 'closePerp', coin: 'ETH', fraction: 0.5 },
+    });
+    s.controller.alert(s.session, signal);
+    const shown = s.overlays().at(-1);
+    if (shown?.kind !== 'alert' || !shown.action) throw new Error('expected an alert action');
+    expect(shown.title).toBe('ETH +5.5%');
+    await s.controller.onClientMsg(s.session, {
+      t: 'action',
+      cardId: 'alert',
+      actionId: shown.action.id,
+    });
+    const p = confirmOf(s.overlays().at(-1));
+    await s.controller.onClientMsg(s.session, { t: 'confirm', proposalId: p.id });
+    expect(onSignalFilled).not.toHaveBeenCalled();
+  });
+
   it('keeps the chat origin when the price moved and the trade is proposed again', async () => {
     const onSignalFilled = vi.fn();
     const s = setup({ onSignalFilled });

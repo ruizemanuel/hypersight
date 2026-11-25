@@ -46,6 +46,7 @@ describe('createTelegramApi', () => {
           update_id: 10,
           message: {
             message_id: 7,
+            date: 1_764_072_000,
             chat: group,
             from: { id: 1, username: 'whale', first_name: 'W' },
             text: 'longing ETH here',
@@ -55,6 +56,7 @@ describe('createTelegramApi', () => {
           update_id: 11,
           channel_post: {
             message_id: 8,
+            date: 1_764_072_001,
             chat: { id: -200, type: 'channel', title: 'Signals' },
             caption: 'short sol',
           },
@@ -63,6 +65,8 @@ describe('createTelegramApi', () => {
           update_id: 12,
           edited_message: {
             message_id: 9,
+            date: 1_764_070_000,
+            edit_date: 1_764_072_002,
             chat: group,
             from: { id: 2, first_name: 'Ana' },
             text: 'compro yes en bitcoin',
@@ -74,6 +78,7 @@ describe('createTelegramApi', () => {
           update_id: 15,
           message: {
             message_id: 11,
+            date: 1_764_072_003,
             chat: { id: 5, type: 'private', first_name: 'Eve' },
             text: 'hi',
           },
@@ -91,6 +96,7 @@ describe('createTelegramApi', () => {
           messageId: 7,
           from: 'whale',
           text: 'longing ETH here',
+          sentAt: 1_764_072_000_000,
         },
       },
       {
@@ -102,6 +108,7 @@ describe('createTelegramApi', () => {
           messageId: 8,
           from: 'Signals',
           text: 'short sol',
+          sentAt: 1_764_072_001_000,
         },
       },
       {
@@ -113,6 +120,8 @@ describe('createTelegramApi', () => {
           messageId: 9,
           from: 'Ana',
           text: 'compro yes en bitcoin',
+          // An edit keeps the time the message was first sent.
+          sentAt: 1_764_070_000_000,
         },
       },
       { updateId: 13 },
@@ -126,8 +135,29 @@ describe('createTelegramApi', () => {
           messageId: 11,
           from: 'Eve',
           text: 'hi',
+          sentAt: 1_764_072_003_000,
         },
       },
+    ]);
+  });
+
+  it('skips a malformed update and still moves past it', async () => {
+    const chat = { id: -100, type: 'group', title: 'G' };
+    const { fn } = fakeFetch({
+      ok: true,
+      result: [
+        { update_id: 5, message: { message_id: 1, date: 1, chat, text: 'a' } },
+        { update_id: 6, message: { message_id: 2, date: 1, text: 'no chat' } },
+        { update_id: 7, message: { message_id: 3, chat, text: 'no date' } },
+        { update_id: 8, message: { message_id: 4, date: 1, chat, text: 'b' } },
+      ],
+    });
+    const updates = await createTelegramApi(TOKEN, fn).getUpdates(0, 25);
+    expect(updates.map((u) => [u.updateId, u.message?.text])).toEqual([
+      [5, 'a'],
+      [6, undefined],
+      [7, undefined],
+      [8, 'b'],
     ]);
   });
 
@@ -180,6 +210,7 @@ const msg = (messageId: number, text: string): TgMessage => ({
   messageId,
   from: 'whale',
   text,
+  sentAt: 0,
 });
 
 /** Runs the poller over scripted getUpdates results, stopping it once the script is used up. */

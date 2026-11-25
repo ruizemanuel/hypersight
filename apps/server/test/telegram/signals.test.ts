@@ -24,6 +24,7 @@ const msg = (over: Partial<TgMessage> = {}): TgMessage => ({
   messageId: 7,
   from: 'whale',
   text: 'longing ETH here',
+  sentAt: NOW - 5_000,
   ...over,
 });
 
@@ -98,6 +99,20 @@ describe('TelegramSignals', () => {
     s.signals.onMessage(msg({ text: 'gm everyone' }));
     s.signals.onMessage(msg({ messageId: 8, text: 'close btc' }));
     expect(s.alerts).toEqual([]);
+  });
+
+  it('ignores a call sent minutes ago (a backlog after a restart), but still lists its chat', () => {
+    const s = setup();
+    s.follow();
+    s.signals.onMessage(msg({ sentAt: NOW - 10 * 60_000, chatTitle: 'Alpha calls VIP' }));
+    expect(s.alerts).toEqual([]);
+    expect(s.repos.telegramChats.get(-100)).toMatchObject({
+      title: 'Alpha calls VIP',
+      seenAt: NOW,
+    });
+    // Still fresh at two minutes.
+    s.signals.onMessage(msg({ messageId: 8, sentAt: NOW - 2 * 60_000 }));
+    expect(s.alerts).toHaveLength(1);
   });
 
   it('alerts once per message: an edited signal does not alert again', () => {

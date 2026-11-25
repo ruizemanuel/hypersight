@@ -29,6 +29,13 @@ const SYNONYMS: Record<string, string> = {
   closed: 'close',
   cierro: 'close',
   cerre: 'close',
+  // Advice against a trade is a negation of it.
+  avoid: 'dont',
+  avoiding: 'dont',
+  avoided: 'dont',
+  evitar: 'dont',
+  evito: 'dont',
+  evitaria: 'dont',
 };
 
 /** "no longeo eth" / "no buy" in a chat is a negation, never the outcome side "no". */
@@ -37,12 +44,27 @@ const NO_BEFORE_VERB = /\bno (?=(?:long|short|buy|sell|close)\b)/g;
 const DISCLAIMERS =
   /\b(?:not (?:an? )?(?:financial |investment )?advice|no es (?:un )?consejo(?: financiero| de inversion)?)\b/g;
 
-function canonical(text: string): string {
-  const s = text
-    .toLowerCase()
+/** "short-term bullish", "short squeeze", "long live": long/short that are not a side. */
+const IDIOMS = /\b(?:short|long)[\s-](?:term|squeeze)\b|\blong live\b/g;
+/** A PnL figure ("closed +12%") is not the share to close. */
+const SIGNED_PCT = /[+\-−]\s?\d+(?:[.,]\d+)?\s*%/g;
+/** "if btc breaks 62k I'm long", "si rompe compro": not a call yet (an accented "sí" is yes). */
+const CONDITIONAL = /\b(?:if|si)\b/;
+/** "who is longing eth", "should I short": questions, even without a question mark. */
+const QUESTION_START =
+  /^[^a-z]*(?:who|whos|what|whats|why|how|should|would|could|anyone|anybody|is|are|do|does|did|quien|alguien|deberia|conviene)\b/;
+/** "SL hit", "TP1 hit 2600", "invalidated": news about a call, not a new one. */
+const STATUS =
+  /\b(?:tp\d*|sl|target\d*|stop(?:\s*loss)?)\s+(?:\d+(?:[.,]\d+)?\s+)?(?:hit|reached|done|taken)\b|\b(?:invalidated|stopped out)\b/;
+
+/** Lower-cased text → accents dropped, disclaimers and idioms removed, chat verbs folded. */
+function canonical(lower: string): string {
+  const s = lower
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
     .replace(DISCLAIMERS, ' ')
+    .replace(IDIOMS, ' ')
+    .replace(SIGNED_PCT, ' ')
     .replace(/[a-z]+/g, (w) => SYNONYMS[w] ?? w);
   return s.replace(NO_BEFORE_VERB, 'dont ');
 }
@@ -57,7 +79,10 @@ const middle = (xs: number[]): number => (xs[1] ?? xs[0]) as number;
 export function parseSignal(text: string, ctx: IntentContext, presets: Presets): Intent | null {
   // No focus and no single-position fallback: a chat message must name what it trades.
   const strict: IntentContext = { ...ctx, positions: [], focus: undefined };
-  const s = canonical(text);
+  const lower = text.normalize('NFC').toLowerCase();
+  if (/[?¿]/.test(lower) || CONDITIONAL.test(lower)) return null;
+  const s = canonical(lower);
+  if (QUESTION_START.test(s) || STATUS.test(s)) return null;
   const placeholder = ` ${middle(presets.openUsd)} dollars`;
   let intent = parseIntentFast(s, strict) ?? parseIntentFast(s + placeholder, strict);
   if (!intent) {

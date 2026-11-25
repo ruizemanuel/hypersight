@@ -7,6 +7,11 @@ import { parseSignal } from './signal';
 
 const TITLE_MAX = 40;
 const EXCERPT_MAX = 60;
+/**
+ * A call older than this is no longer news: after a restart Telegram hands back up to a day of
+ * messages, and an edit of an old post ("TP1 hit") keeps its first send time.
+ */
+const MAX_AGE_MS = 3 * 60_000;
 /** Messages already alerted (an edit of one never alerts again); oldest forgotten first. */
 const ALERTED_MAX = 500;
 
@@ -46,7 +51,7 @@ export class TelegramSignals {
       { id: m.chatId, title: m.chatTitle, type: m.chatType },
       this.now(),
     );
-    if (!chat.follow) return;
+    if (!chat.follow || this.now() - m.sentAt > MAX_AGE_MS) return;
     const key = `tg:${m.chatId}:${m.messageId}`;
     if (this.alerted.has(key)) return;
     const intent = parseSignal(m.text, this.deps.context(), this.deps.presets());
