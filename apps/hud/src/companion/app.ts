@@ -361,6 +361,7 @@ export function mountCompanion(
     section('Risk limits', riskBox),
     section(
       'Alerts',
+      h('h3', {}, 'Your rules'),
       rulesList,
       h('h3', {}, 'Price'),
       h('div', { class: 'inline' }, coin.row, dir.row, px.row),
