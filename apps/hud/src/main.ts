@@ -170,13 +170,14 @@ async function boot(): Promise<void> {
       if (pcm) voice.onPcm(pcm);
       return;
     }
-    const input = normalizer.normalize(event, Date.now());
+    const at = Date.now();
+    const input = normalizer.normalize(event, at);
     if (!input) return;
     // Voice sees every event first (including exit while the exit dialog is up) so the mic
     // is always closed; events it owns never reach the deck.
     const consumed = voice.consumes(input);
     void voice.onInput(input);
-    if (!consumed) dispatch(input);
+    if (!consumed) dispatch({ ...input, at });
   });
 
   // Countdown (confirm) and elapsed time (listening) tick once a second: footer/body upgrades only.

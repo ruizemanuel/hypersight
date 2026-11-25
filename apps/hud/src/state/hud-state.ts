@@ -30,7 +30,7 @@ export type HudState = {
   overlay: Overlay | null;
   /** When the current overlay arrived (listening elapsed time). */
   overlayAt: number;
-  mode: 'deck' | 'actions' | 'exit';
+  mode: 'deck' | 'actions';
   /** The system exit dialog is up: input is ignored until it is answered. */
   exiting: boolean;
   status: HudStatus;
@@ -44,7 +44,8 @@ export type HudState = {
 };
 
 export type HudEvent =
-  | InputEvent
+  /** `at`: when the input happened (phone clock); the confirm card ignores taps right after it shows. */
+  | (InputEvent & { at?: number })
   | { type: 'deck'; cards: CardModel[]; cached?: true }
   | { type: 'overlay'; overlay: Overlay | null; at: number }
   | { type: 'status'; status: HudStatus }
@@ -58,6 +59,8 @@ export type HudEvent =
 export const THINKING_MAX_MS = 15_000;
 /** An executing order may take this long before the HUD asks the user to check positions. */
 export const SENDING_MAX_MS = 60_000;
+/** A tap this soon after a confirm card shows is ignored: a repeated tap must not confirm unread. */
+export const CONFIRM_ARM_MS = 600;
 /** Results clear themselves (and the server snapshot) after this long. */
 export const RESULT_MS = 4_000;
 
@@ -172,7 +175,7 @@ export function step(s: HudState, ev: HudEvent): Result {
   }
 }
 
-function onInput(s: HudState, ev: InputEvent): Result {
+function onInput(s: HudState, ev: InputEvent & { at?: number }): Result {
   if (s.exiting) {
     // FOREGROUND_EXIT while the system dialog is up = the user answered "No".
     return ev.type === 'foregroundExit' ? done({ ...s, exiting: false, mode: 'deck' }) : done(s);
@@ -185,16 +188,10 @@ function onInput(s: HudState, ev: InputEvent): Result {
       : done(s);
   }
 
-  if (s.mode === 'exit') {
-    if (ev.type === 'tap') return done({ ...s, exiting: true }, { type: 'exit' });
-    if (ev.type === 'doubleTap') return done({ ...s, mode: 'deck' });
-    return done(s);
-  }
-
   if (s.overlay) return onOverlayInput(s, s.overlay, ev);
 
   if (blocking(s.status)) {
-    if (ev.type === 'doubleTap') return done({ ...s, mode: 'exit' });
+    if (ev.type === 'doubleTap') return exit(s);
     if (ev.type === 'tap' && s.status === 'replaced') return done(s, { type: 'reconnect' });
     return done(s);
   }
@@ -221,19 +218,27 @@ function onInput(s: HudState, ev: InputEvent): Result {
     case 'tap':
       return card && card.actions.length > 0 ? done({ ...s, mode: 'actions' }) : done(s);
     case 'doubleTap':
-      return done({ ...s, mode: 'exit' });
+      return exit(s);
     default:
       return done(s);
   }
 }
 
-function onOverlayInput(s: HudState, o: Overlay, ev: InputEvent): Result {
+/** Root double tap: the system exit dialog asks Yes/No itself (store rule: no exit UI of our own). */
+function exit(s: HudState): Result {
+  return done({ ...s, exiting: true }, { type: 'exit' });
+}
+
+function onOverlayInput(s: HudState, o: Overlay, ev: InputEvent & { at?: number }): Result {
   const cleared = { ...s, overlay: null };
   switch (o.kind) {
     case 'confirm': {
       const proposalId = o.proposal.id;
       if (ev.type === 'doubleTap' || (ev.type === 'tap' && o.proposal.blocked)) {
         return done(cleared, { type: 'send', msg: { t: 'cancel', proposalId } });
+      }
+      if (ev.type === 'tap' && ev.at !== undefined && ev.at - s.overlayAt < CONFIRM_ARM_MS) {
+        return done(s);
       }
       // The card is gone the moment it is confirmed: no second tap, no "cancel" while it executes.
       if (ev.type === 'tap') {
@@ -281,14 +286,6 @@ const EXIT_HINT = '2×TAP exit';
 
 export function pageFor(s: HudState, now: number): PageSpec {
   const title = `HyperSight · ${s.badge}`;
-  if (s.mode === 'exit' || s.exiting) {
-    return layoutStatus({
-      title: 'HyperSight',
-      value: 'Exit HyperSight?',
-      lines: [],
-      hint: 'TAP exit · 2×TAP stay',
-    });
-  }
   if (s.overlay) {
     // Countdowns run on the server clock; elapsed times stay on the phone clock.
     const clock = s.overlay.kind === 'confirm' ? now + s.clockOffset : now;

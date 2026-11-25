@@ -107,25 +107,25 @@ describe('hudReducer actions', () => {
   });
 });
 
-describe('hudReducer exit card', () => {
-  it('opens the exit card on a root double tap, exits on tap, stays on double tap', () => {
-    const opened = run([{ type: 'deck', cards: deck }, { type: 'doubleTap' }]).state;
-    expect(opened.mode).toBe('exit');
-    expect(hudReducer(opened, { type: 'doubleTap' }).mode).toBe('deck');
-    const r = step(opened, { type: 'tap' });
+describe('hudReducer exit', () => {
+  it('opens the system exit dialog straight from a root double tap (no exit card of its own)', () => {
+    const onDeck = run([{ type: 'deck', cards: deck }]).state;
+    const r = step(onDeck, { type: 'doubleTap' });
     expect(r.effects).toEqual([{ type: 'exit' }]);
     expect(r.state.exiting).toBe(true);
+    // The deck stays behind the system dialog: no page of our own is drawn for it.
+    expect(pageFor(r.state, 0)).toEqual(pageFor(onDeck, 0));
   });
 
   it('ignores input while the system dialog is up and returns when it is cancelled', () => {
-    const exiting = run([{ type: 'doubleTap' }, { type: 'tap' }]).state;
+    const exiting = run([{ type: 'deck', cards: deck }, { type: 'doubleTap' }]).state;
     expect(run([{ type: 'down' }, { type: 'tap' }], exiting).effects).toEqual([]);
     const back = hudReducer(exiting, { type: 'foregroundExit' });
     expect(back).toMatchObject({ exiting: false, mode: 'deck' });
   });
 
   it('recovers when the shutdown call fails (no permanent lock)', () => {
-    const exiting = run([{ type: 'doubleTap' }, { type: 'tap' }]).state;
+    const exiting = run([{ type: 'deck', cards: deck }, { type: 'doubleTap' }]).state;
     expect(hudReducer(exiting, { type: 'exitFailed' })).toMatchObject({
       exiting: false,
       mode: 'deck',
@@ -134,9 +134,7 @@ describe('hudReducer exit card', () => {
 
   it('allows exiting from the setup screen', () => {
     const setup = { ...initialHudState, status: 'setup' as const };
-    expect(run([{ type: 'doubleTap' }, { type: 'tap' }], setup).effects).toEqual([
-      { type: 'exit' },
-    ]);
+    expect(run([{ type: 'doubleTap' }], setup).effects).toEqual([{ type: 'exit' }]);
   });
 });
 
@@ -154,6 +152,20 @@ describe('hudReducer overlays and link status', () => {
     const cancelled = step(shown, { type: 'doubleTap' });
     expect(cancelled.effects).toEqual([{ type: 'send', msg: { t: 'cancel', proposalId: 'p1' } }]);
     expect(cancelled.state.overlay).toBeNull();
+  });
+
+  it('ignores a tap in the first 600 ms of a confirm card (a repeated tap is not a confirmation)', () => {
+    const shown = run([{ type: 'overlay', overlay: confirm, at: 1_000 }]).state;
+    const early = step(shown, { type: 'tap', at: 1_500 });
+    expect(early.effects).toEqual([]);
+    expect(early.state.overlay).toEqual(confirm);
+    // Cancelling works at once; once the card has been up 600 ms a tap confirms.
+    expect(step(shown, { type: 'doubleTap', at: 1_100 }).effects).toEqual([
+      { type: 'send', msg: { t: 'cancel', proposalId: 'p1' } },
+    ]);
+    expect(step(shown, { type: 'tap', at: 1_600 }).effects).toEqual([
+      { type: 'send', msg: { t: 'confirm', proposalId: 'p1' } },
+    ]);
   });
 
   it('does not navigate the deck while an overlay is shown', () => {
@@ -335,7 +347,7 @@ describe('hudReducer overlays and link status', () => {
 });
 
 describe('pageFor', () => {
-  it('shows connecting, the current card, actions, overlays and the exit card', () => {
+  it('shows connecting, the current card, actions and overlays', () => {
     const val = (s: HudState) => pageFor(s, 0).texts.find((t) => t.name === 'val')?.text;
     expect(val({ ...initialHudState })).toBe('Connecting…');
     const withDeck = run([{ type: 'deck', cards: deck }, { type: 'down' }]).state;
@@ -343,7 +355,6 @@ describe('pageFor', () => {
       'PERP:ETH · TESTNET · 2/3',
     );
     expect(pageFor(hudReducer(withDeck, { type: 'tap' }), 0).layoutKey).toBe('actions');
-    expect(val(hudReducer(withDeck, { type: 'doubleTap' }))).toBe('Exit HyperSight?');
     expect(val({ ...withDeck, status: 'replaced' })).toBe('Opened on another device');
   });
 
@@ -353,7 +364,7 @@ describe('pageFor', () => {
     expect(text('val')).toBe('K7Q-4MD');
     expect(text('body')).toContain('Pair: open 192.168.1.5:8787/link');
     expect(text('ftr')).toBe('2×TAP exit');
-    expect(step(pairing, { type: 'doubleTap' }).state.mode).toBe('exit');
+    expect(step(pairing, { type: 'doubleTap' }).effects).toEqual([{ type: 'exit' }]);
   });
 
   it('marks a cached deck offline until the socket is open', () => {
