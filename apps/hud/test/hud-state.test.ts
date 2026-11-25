@@ -80,17 +80,39 @@ describe('hudReducer actions', () => {
     expect(run([{ type: 'deck', cards: deck }, { type: 'tap' }]).state.mode).toBe('deck');
   });
 
-  it('sends the selected action and returns to the deck', () => {
+  it('sends the selected action and shows Thinking until the server answers (no flash of the card)', () => {
     const { state, effects } = run([
       { type: 'deck', cards: deck },
       { type: 'down' },
       { type: 'tap' },
-      { type: 'listSelect', index: 1 },
+      { type: 'listSelect', index: 1, at: 5_000 },
     ]);
     expect(effects).toEqual([
       { type: 'send', msg: { t: 'action', cardId: 'perp:ETH', actionId: 'a1' } },
     ]);
     expect(state.mode).toBe('deck');
+    expect(state.overlay).toEqual({ kind: 'thinking' });
+    expect(state.overlayAt).toBe(5_000);
+  });
+
+  it('sends a tapped alert action and shows Thinking until the confirm arrives', () => {
+    const alert = {
+      kind: 'alert' as const,
+      title: 'ETH -0.9%',
+      lines: ['your rule: take half'],
+      action: {
+        id: 'al1',
+        label: 'take half',
+        intent: { kind: 'closePerp' as const, coin: 'ETH', fraction: 0.5 },
+      },
+    };
+    const shown = run([{ type: 'overlay', overlay: alert, at: 0 }]).state;
+    const { state, effects } = step(shown, { type: 'tap', at: 3_000 });
+    expect(effects).toEqual([
+      { type: 'send', msg: { t: 'action', cardId: 'alert', actionId: 'al1' } },
+    ]);
+    expect(state.overlay).toEqual({ kind: 'thinking' });
+    expect(state.overlayAt).toBe(3_000);
   });
 
   it('maps contextual menu items to server actions', () => {

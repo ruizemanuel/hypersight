@@ -202,8 +202,9 @@ function onInput(s: HudState, ev: InputEvent & { at?: number }): Result {
     if (ev.type === 'listSelect' && card) {
       const action = card.actions[ev.index];
       if (!action) return done(s);
+      // Thinking until the server answers (confirm, result or error): the card must not flash back.
       return done(
-        { ...s, mode: 'deck' },
+        { ...s, mode: 'deck', overlay: { kind: 'thinking' }, overlayAt: ev.at ?? s.overlayAt },
         { type: 'send', msg: { t: 'action', cardId: card.id, actionId: action.id } },
       );
     }
@@ -256,10 +257,13 @@ function onOverlayInput(s: HudState, o: Overlay, ev: InputEvent & { at?: number 
         : done(s);
     case 'alert':
       if (ev.type === 'tap' && o.action) {
-        return done(cleared, {
-          type: 'send',
-          msg: { t: 'action', cardId: 'alert', actionId: o.action.id },
-        });
+        return done(
+          { ...s, overlay: { kind: 'thinking' }, overlayAt: ev.at ?? s.overlayAt },
+          {
+            type: 'send',
+            msg: { t: 'action', cardId: 'alert', actionId: o.action.id },
+          },
+        );
       }
       return ev.type === 'tap' || ev.type === 'doubleTap'
         ? done(cleared, { type: 'send', msg: { t: 'dismiss' } })
