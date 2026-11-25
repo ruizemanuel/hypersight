@@ -67,3 +67,20 @@ export function fmtSize(n: number, decimals: number): string {
   const f = 10 ** decimals;
   return String(Math.floor(Math.abs(n) * f + 1e-9) / f);
 }
+
+/** `▲ ` for a gain, `▼ ` for a loss, nothing when it rounds to zero cents (glyphs from the G2 safe set). */
+export function trend(usd: number): string {
+  const cents = Math.round(Math.abs(usd) * 100);
+  if (cents === 0) return '';
+  return usd > 0 ? '▲ ' : '▼ ';
+}
+
+/**
+ * A 0–1 share as solid `█` cells on a thin `─` track; out of range is clamped. (The G2 font
+ * draws `━` almost as thin as `─`, so the heavy-line bar is unreadable at a glance.)
+ */
+export function bar(share: number, cells = 24): string {
+  const clamped = Number.isFinite(share) ? Math.min(1, Math.max(0, share)) : 0;
+  const filled = Math.round(clamped * cells);
+  return '█'.repeat(filled) + '─'.repeat(cells - filled);
+}

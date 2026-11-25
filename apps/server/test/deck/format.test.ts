@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { fmtPct, fmtPrice, fmtProb, fmtSize, fmtUntil, fmtUsd } from '../../src/deck/format';
+import {
+  bar,
+  fmtPct,
+  fmtPrice,
+  fmtProb,
+  fmtSize,
+  fmtUntil,
+  fmtUsd,
+  trend,
+} from '../../src/deck/format';
 
 describe('fmtUsd', () => {
   it.each<[number, { sign?: boolean } | undefined, string]>([
@@ -77,5 +86,28 @@ describe('fmtSize', () => {
     [3, 0, '3'],
   ])('fmtSize(%s, %s) → %s', (n, d, want) => {
     expect(fmtSize(n, d)).toBe(want);
+  });
+});
+
+describe('trend', () => {
+  it('marks a gain with ▲ and a loss with ▼, and nothing when it rounds to zero cents', () => {
+    expect(trend(42.1)).toBe('▲ ');
+    expect(trend(-0.09)).toBe('▼ ');
+    expect(trend(0.004)).toBe('');
+    expect(trend(-0.004)).toBe('');
+    expect(trend(0)).toBe('');
+  });
+});
+
+describe('bar', () => {
+  it('draws a 0–1 share as solid blocks on a thin track (24 by default)', () => {
+    expect(bar(0.32)).toBe('█'.repeat(8) + '─'.repeat(16));
+    expect(bar(0.5, 20)).toBe('█'.repeat(10) + '─'.repeat(10));
+  });
+
+  it('clamps out-of-range and missing values instead of drawing a broken bar', () => {
+    expect(bar(1.7)).toBe('█'.repeat(24));
+    expect(bar(-0.2)).toBe('─'.repeat(24));
+    expect(bar(Number.NaN)).toBe('─'.repeat(24));
   });
 });

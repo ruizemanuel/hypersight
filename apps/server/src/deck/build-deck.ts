@@ -2,7 +2,7 @@ import type { Badge, CardModel, Presets, QuickAction } from '@hypersight/protoco
 import type { AccountView, OutcomePosition, PerpPosition } from '../hl/account';
 import { outcomeCoin } from '../hl/ids';
 import type { OutcomeMarket } from '../hl/outcomes';
-import { fmtPct, fmtPrice, fmtProb, fmtSize, fmtUntil, fmtUsd } from './format';
+import { bar, fmtPct, fmtPrice, fmtProb, fmtSize, fmtUntil, fmtUsd, trend } from './format';
 import type { Recap } from './recap';
 
 export type DeckInput = {
@@ -53,7 +53,7 @@ function accountCard(view: AccountView, badge: Badge): CardModel {
     title: 'ACCOUNT',
     value: fmtUsd(view.equityUsd),
     lines: [
-      `Open PnL ${fmtUsd(openPnl, { sign: true })}`,
+      `Open PnL ${trend(openPnl)}${fmtUsd(openPnl, { sign: true })}`,
       `Margin used ${fmtPct(view.marginUsage)}`,
       `USDC ${fmtUsd(view.spotUsdc)} · ${positions} open`,
     ],
@@ -62,6 +62,9 @@ function accountCard(view: AccountView, badge: Badge): CardModel {
     actions: [],
   };
 }
+
+/** The liquidation gauge is full from this distance (3× the default warning distance). */
+const LIQ_BAR_FULL = 0.3;
 
 function closeLabel(fraction: number): string {
   return fraction >= 1 ? 'Close all' : `Close ${Math.round(fraction * 100)}%`;
@@ -74,7 +77,7 @@ function perpCard(p: PerpPosition, presets: Presets, badge: Badge): CardModel {
   ];
   if (p.liqPx !== null && p.markPx > 0) {
     const away = Math.abs(p.markPx - p.liqPx) / p.markPx;
-    lines.push(`liq $${fmtPrice(p.liqPx)} · ${fmtPct(away)} away`);
+    lines.push(`liq $${fmtPrice(p.liqPx)}`, `${bar(away / LIQ_BAR_FULL, 20)} ${fmtPct(away)} away`);
   } else {
     lines.push('no liquidation price');
   }
@@ -82,7 +85,7 @@ function perpCard(p: PerpPosition, presets: Presets, badge: Badge): CardModel {
     id: `perp:${p.coin}`,
     kind: 'perp',
     title: `${p.coin} ${side} ${p.leverage}×`,
-    value: `${fmtUsd(p.upnlUsd, { sign: true })} (${fmtPct(p.roe, { sign: true })})`,
+    value: `${trend(p.upnlUsd)}${fmtUsd(p.upnlUsd, { sign: true })} (${fmtPct(p.roe, { sign: true })})`,
     lines,
     hint: HINT_ACTIONS,
     badge,
@@ -96,11 +99,12 @@ function perpCard(p: PerpPosition, presets: Presets, badge: Badge): CardModel {
 
 function outcomePositionCard(o: OutcomePosition, badge: Badge, now: number): CardModel {
   const side = o.market.sides[o.sideIndex];
-  const lines = [
-    `${o.shares} shares · value ${fmtUsd(o.valueUsd)}`,
-    `PnL ${fmtUsd(o.upnlUsd, { sign: true })} · pays ${fmtUsd(o.maxPayoutUsd)}`,
+  const pnl = [
+    `PnL ${trend(o.upnlUsd)}${fmtUsd(o.upnlUsd, { sign: true })}`,
+    `pays ${fmtUsd(o.maxPayoutUsd)}`,
   ];
-  if (o.market.expiresAt !== undefined) lines.push(`resolves ${fmtUntil(o.market.expiresAt, now)}`);
+  if (o.market.expiresAt !== undefined) pnl.push(fmtUntil(o.market.expiresAt, now));
+  const lines = [bar(o.mid), `${o.shares} shares · value ${fmtUsd(o.valueUsd)}`, pnl.join(' · ')];
   const sell = (fraction: number, text: string): QuickAction => ({
     id: `sell-${fraction * 100}`,
     label: text,
@@ -149,7 +153,7 @@ function marketCard(m: OutcomeMarket, input: DeckInput): CardModel {
     kind: 'market',
     title: m.short,
     value: `${sideLabel(m.sides[0])} ${prob(yes)}`,
-    lines: [m.title, second.join(' · ')],
+    lines: [...(yes === null ? [] : [bar(yes)]), m.title, second.join(' · ')],
     hint: HINT_ACTIONS,
     badge,
     actions: [
@@ -196,7 +200,7 @@ function recapCard(r: Recap, badge: Badge): CardModel {
     id: 'recap',
     kind: 'recap',
     title: 'TODAY',
-    value: fmtUsd(r.realizedUsd, { sign: true }),
+    value: `${trend(r.realizedUsd)}${fmtUsd(r.realizedUsd, { sign: true })}`,
     lines,
     hint: HINT_NO_ACTIONS,
     badge,

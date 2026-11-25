@@ -80,8 +80,12 @@ const deck = (v: AccountView, watch: OutcomeMarket[] = [btcDaily, ethDaily]) =>
 describe('buildDeck', () => {
   it('shows a perp position with value, liquidation and close presets', () => {
     const card = deck(view({ perps: [ethLong] })).find((c) => c.id === 'perp:ETH');
-    expect(card).toMatchObject({ kind: 'perp', title: 'ETH LONG 2×', value: '+$42.10 (+3.1%)' });
-    expect(card?.lines.some((l) => l.includes('liq $2,950'))).toBe(true);
+    expect(card).toMatchObject({ kind: 'perp', title: 'ETH LONG 2×', value: '▲ +$42.10 (+3.1%)' });
+    // Liquidation room as a gauge: full at 30% away; 13.5% away fills 9 of 20 cells.
+    expect(card?.lines.slice(1)).toEqual([
+      'liq $2,950',
+      `${'█'.repeat(9)}${'─'.repeat(11)} 13.5% away`,
+    ]);
     expect(card?.actions.map((a) => a.label)).toEqual(['Close 25%', 'Close 50%', 'Close all']);
     expect(card?.actions[1]?.intent).toEqual({ kind: 'closePerp', coin: 'ETH', fraction: 0.5 });
   });
@@ -91,7 +95,8 @@ describe('buildDeck', () => {
       (c) => c.id === 'perp:ETH',
     );
     expect(card?.title).toBe('ETH SHORT 2×');
-    expect(card?.value.startsWith('−$3.00')).toBe(true);
+    expect(card?.value.startsWith('▼ −$3.00')).toBe(true);
+    expect(card?.lines.join(' ')).not.toContain('█');
     expect(card?.lines.join(' ')).not.toContain('liq $');
   });
 
@@ -112,7 +117,7 @@ describe('buildDeck', () => {
       id: 'recap',
       kind: 'recap',
       title: 'TODAY',
-      value: '+$63.20',
+      value: '▲ +$63.20',
       lines: ['4 trades · 3 filled', 'Best: ETH +$41.10'],
       hint: 'HOLD speak · swipe for cards',
       badge: 'TESTNET',
@@ -185,6 +190,8 @@ describe('buildDeck', () => {
     const card = deck(view({ outcomes: [hawksYes] })).find((c) => c.id === 'opos:24274:0');
     expect(card).toMatchObject({ kind: 'outcomePosition', title: 'Hawks v Mavericks' });
     expect(card?.value).toContain('Hawks 62%');
+    expect(card?.lines[0]).toBe('█'.repeat(15) + '─'.repeat(9));
+    expect(card?.lines[2]).toMatch(/^PnL \$0\.00 · pays \$40\.00 · in \d/);
     expect(card?.actions.map((a) => a.label)).toEqual(['Sell half', 'Sell all']);
     expect(card?.actions[0]?.intent).toEqual({
       kind: 'sellOutcome',
@@ -197,6 +204,9 @@ describe('buildDeck', () => {
   it('shows a watched market with odds and outcome buy presets', () => {
     const card = deck(view()).find((c) => c.id === 'mkt:rb:BTC:1d');
     expect(card).toMatchObject({ kind: 'market', title: 'BTC > 60,511 · daily', value: 'YES 59%' });
+    // The odds as a bar right under the value box, then the question.
+    expect(card?.lines[0]).toBe('█'.repeat(14) + '─'.repeat(10));
+    expect(card?.lines[1]).toBe(btcDaily.title);
     expect(card?.actions.map((a) => a.label)).toEqual([
       'Buy YES $5',
       'Buy YES $10',
@@ -246,7 +256,7 @@ describe('buildDeck', () => {
       (c) => c.id === 'account',
     );
     expect(card?.value).toBe('$1,042.50');
-    expect(card?.lines[0]).toBe('Open PnL +$42.10');
+    expect(card?.lines[0]).toBe('Open PnL ▲ +$42.10');
   });
 
   it('shows margin used (committed margin), not the maintenance ratio', () => {
