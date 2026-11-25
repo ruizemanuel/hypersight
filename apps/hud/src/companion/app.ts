@@ -1,5 +1,5 @@
 import type { AlertRule, Settings } from '@hypersight/protocol';
-import type { CompanionApi, TelegramChat } from './api';
+import type { CompanionApi, TelegramChat, WatchedMarket } from './api';
 import { buildRule, describeRule, type RuleForm } from './rules';
 import { button, field, fmtMs, fmtTime, h, section } from './views';
 
@@ -48,22 +48,22 @@ export function mountCompanion(
   // Watchlist
   const watchList = h('ul', { class: 'list' });
   const results = h('ul', { class: 'list results' });
-  const renderWatch = (keys: string[]) => {
-    renderOddsMarkets(keys);
+  const renderWatch = (markets: WatchedMarket[]) => {
+    renderOddsMarkets(markets);
     watchList.replaceChildren(
-      ...keys.map((k) =>
+      ...markets.map((m) =>
         h(
           'li',
           {},
-          h('span', {}, k),
+          h('span', {}, m.short, m.title !== m.short ? h('small', {}, m.title) : null),
           button(
             'Remove',
-            () => void api.removeWatch(k).then(renderWatch, fail('remove')),
+            () => void api.removeWatch(m.key).then(renderWatch, fail('remove')),
             'ghost',
           ),
         ),
       ),
-      ...(keys.length === 0 ? [h('li', { class: 'muted' }, 'Nothing watched yet')] : []),
+      ...(markets.length === 0 ? [h('li', { class: 'muted' }, 'Nothing watched yet')] : []),
     );
   };
   let searchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -262,11 +262,11 @@ export function mountCompanion(
   const oddsMarket = select('Market', []);
   const oddsPoints = field('Moves (pts)', '8', { step: '1' });
   const oddsMinutes = field('Within (min)', '10', { step: '1' });
-  const renderOddsMarkets = (keys: string[]) =>
+  const renderOddsMarkets = (markets: WatchedMarket[]) =>
     oddsMarket.el.replaceChildren(
-      ...(keys.length === 0
+      ...(markets.length === 0
         ? [h('option', { value: '' }, 'Watch a market first')]
-        : keys.map((k) => h('option', { value: k }, k))),
+        : markets.map((m) => h('option', { value: m.key }, m.short))),
     );
   const addOdds = button('Add odds alert', () =>
     saveRule(

@@ -1,5 +1,6 @@
 import type { AlertRule, Settings } from '@hypersight/protocol';
 
+export type WatchedMarket = { key: string; short: string; title: string };
 export type MarketHit = { key: string; title: string; short: string; expiresAt: number | null };
 export type HistoryEntry = { ts: number; kind: string; proposalId: string; summary: string };
 export type Status = {
@@ -47,10 +48,10 @@ export function createCompanionApi(baseUrl: string, token: string) {
     saveSettings: (patch: SettingsPatch) =>
       call<Settings>('/settings', { method: 'PUT', body: patch }),
     searchMarkets: (q: string) => call<MarketHit[]>(`/markets?q=${encodeURIComponent(q)}`),
-    watch: () => call<string[]>('/watch'),
-    addWatch: (key: string) => call<string[]>('/watch', { method: 'POST', body: { key } }),
+    watch: () => call<WatchedMarket[]>('/watch'),
+    addWatch: (key: string) => call<WatchedMarket[]>('/watch', { method: 'POST', body: { key } }),
     removeWatch: (key: string) =>
-      call<string[]>(`/watch/${encodeURIComponent(key)}`, { method: 'DELETE' }),
+      call<WatchedMarket[]>(`/watch/${encodeURIComponent(key)}`, { method: 'DELETE' }),
     rules: () => call<AlertRule[]>('/rules'),
     saveRule: (rule: AlertRule) =>
       call<AlertRule>(`/rules/${encodeURIComponent(rule.id)}`, { method: 'PUT', body: rule }),

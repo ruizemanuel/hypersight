@@ -37,6 +37,14 @@ const MARKETS_MAX = 10;
 const HISTORY_DEFAULT = 50;
 const HISTORY_MAX = 200;
 
+/** A watched market as the phone shows it; a key the catalogue no longer has keeps its key as name. */
+function watched(deps: ApiDeps): { key: string; short: string; title: string }[] {
+  return deps.repos.watch.list().map((key) => {
+    const m = deps.catalogue.byKey(key);
+    return { key, short: m?.short ?? key, title: m?.title ?? key };
+  });
+}
+
 async function jsonBody(req: { json(): Promise<unknown> }): Promise<unknown> {
   try {
     return await req.json();
@@ -76,19 +84,19 @@ export function createApi(deps: ApiDeps): Hono {
     );
   });
 
-  api.get('/watch', (c) => c.json(deps.repos.watch.list()));
+  api.get('/watch', (c) => c.json(watched(deps)));
   api.post('/watch', async (c) => {
     const parsed = WatchBodySchema.safeParse(await jsonBody(c.req));
     if (!parsed.success) return c.json({ error: 'Invalid market key' }, 400);
     if (!deps.catalogue.byKey(parsed.data.key)) return c.json({ error: 'Unknown market' }, 404);
     deps.repos.watch.add(parsed.data.key);
     deps.onChange();
-    return c.json(deps.repos.watch.list());
+    return c.json(watched(deps));
   });
   api.delete('/watch/:key', (c) => {
     deps.repos.watch.remove(c.req.param('key'));
     deps.onChange();
-    return c.json(deps.repos.watch.list());
+    return c.json(watched(deps));
   });
 
   api.get('/rules', (c) => c.json(deps.repos.rules.list()));

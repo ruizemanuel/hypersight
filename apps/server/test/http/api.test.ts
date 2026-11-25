@@ -92,7 +92,8 @@ describe('companion API', () => {
     expect(
       (await call('/api/watch', { method: 'POST', body: { key: 'rq:BTC:1d:1' } })).status,
     ).toBe(200);
-    expect(await (await call('/api/watch')).json()).toEqual([
+    const keys = (list: unknown) => (list as { key: string }[]).map((m) => m.key);
+    expect(keys(await (await call('/api/watch')).json())).toEqual([
       'rb:BTC:1d',
       'rb:ETH:1d',
       'rq:BTC:1d:1',
@@ -100,8 +101,27 @@ describe('companion API', () => {
     expect(
       (await call(`/api/watch/${encodeURIComponent('rb:ETH:1d')}`, { method: 'DELETE' })).status,
     ).toBe(200);
-    expect(await (await call('/api/watch')).json()).toEqual(['rb:BTC:1d', 'rq:BTC:1d:1']);
+    expect(keys(await (await call('/api/watch')).json())).toEqual(['rb:BTC:1d', 'rq:BTC:1d:1']);
     expect(onChange).toHaveBeenCalledTimes(2);
+  });
+
+  it('names each watched market for the phone, falling back to its key when it is gone', async () => {
+    const { call, repos } = setup();
+    repos.watch.add('o:999999');
+    const list = (await (await call('/api/watch')).json()) as {
+      key: string;
+      short: string;
+      title: string;
+    }[];
+    const btc = list.find((m) => m.key === 'rb:BTC:1d');
+    expect(btc?.short).toMatch(/BTC/);
+    expect(btc?.title).toMatch(/BTC|Bitcoin/i);
+    expect(btc?.short).not.toBe('rb:BTC:1d');
+    expect(list.find((m) => m.key === 'o:999999')).toEqual({
+      key: 'o:999999',
+      short: 'o:999999',
+      title: 'o:999999',
+    });
   });
 
   it('upserts, lists and deletes alert rules, validating them', async () => {
