@@ -73,6 +73,23 @@ describe('parseSignal', () => {
     });
   });
 
+  it.each<[string, Intent]>([
+    [
+      'ETH long here — not financial advice',
+      { kind: 'openPerp', coin: 'ETH', side: 'long', usd: 50, leverage: 2 },
+    ],
+    [
+      'NFA, shorting sol. DYOR',
+      { kind: 'openPerp', coin: 'SOL', side: 'short', usd: 50, leverage: 2 },
+    ],
+    [
+      'compro yes en bitcoin (no es consejo financiero)',
+      { kind: 'buyOutcome', marketKey: 'rb:BTC:1d', sideIndex: 0, usd: 10 },
+    ],
+  ])('does not read a disclaimer in %j as a negation', (text, want) => {
+    expect(parseSignal(text, ctx, DEFAULT_PRESETS)).toEqual(want);
+  });
+
   it.each([
     ['close btc', 'a coin the user does not hold'],
     ['closing half', 'a close that names no coin'],

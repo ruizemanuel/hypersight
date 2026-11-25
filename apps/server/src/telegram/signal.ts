@@ -33,12 +33,16 @@ const SYNONYMS: Record<string, string> = {
 
 /** "no longeo eth" / "no buy" in a chat is a negation, never the outcome side "no". */
 const NO_BEFORE_VERB = /\bno (?=(?:long|short|buy|sell|close)\b)/g;
+/** Disclaimers under a call ("not financial advice") are not a negation of the trade. */
+const DISCLAIMERS =
+  /\b(?:not (?:an? )?(?:financial |investment )?advice|no es (?:un )?consejo(?: financiero| de inversion)?)\b/g;
 
 function canonical(text: string): string {
   const s = text
     .toLowerCase()
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
+    .replace(DISCLAIMERS, ' ')
     .replace(/[a-z]+/g, (w) => SYNONYMS[w] ?? w);
   return s.replace(NO_BEFORE_VERB, 'dont ');
 }

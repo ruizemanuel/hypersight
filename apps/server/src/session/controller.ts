@@ -1,5 +1,5 @@
 import type { Badge, ClientMsg, Intent, Overlay, ProposalView } from '@hypersight/protocol';
-import { type AlertEvent, ruleVerb } from '../alerts/rules';
+import { type AlertEvent, ruleVerb, type SignalOrigin } from '../alerts/rules';
 import { fmtPrice, fmtProb, fmtUsd } from '../deck/format';
 import type { AccountView } from '../hl/account';
 import { outcomeCoin } from '../hl/ids';
@@ -31,6 +31,8 @@ export type ControllerDeps = {
   /** Streams audio to speech-to-text; absent in tests that feed transcripts directly. */
   voice?: { start(s: Session): void; end(s: Session): Promise<void>; drop(s: Session): void };
   badge?: Badge;
+  /** A trade proposed from a chat signal filled (fully or partly): report it to that chat. */
+  onSignalFilled?: (origin: SignalOrigin, message: string) => void;
   log?: (msg: string, err?: unknown) => void;
   now?: () => number;
 };
@@ -58,10 +60,17 @@ const PRICE_MOVED = 'Price moved — review again';
 const PENDING_ALERT_MAX_MS = 5 * 60_000;
 /** The HUD auto-cancels an expired confirm itself; the server only steps in after this grace. */
 const RELEASE_GRACE_MS = 1_000;
+/** Alert actions and proposals that came from a chat signal, remembered until used (bounded). */
+const ORIGINS_MAX = 100;
 
 const sideLabel = (side: string) => (/^(yes|no)$/i.test(side) ? side.toUpperCase() : side);
 const okStatus = (r: ExecResult) =>
   r.status === 'filled' || r.status === 'partial' || r.status === 'resting';
+
+function remember(map: Map<string, SignalOrigin>, id: string, origin: SignalOrigin): void {
+  map.set(id, origin);
+  if (map.size > ORIGINS_MAX) map.delete(map.keys().next().value as string);
+}
 
 /** `mkt:rb:BTC:1d` → that market; `opos:27321:0` → its market; `perp:ETH` → that coin. */
 function focusFromCard(
@@ -88,6 +97,10 @@ export class SessionController {
   private readonly devices = new WeakMap<Session, DeviceState>();
   private last: Metrics = {};
   private readonly now: () => number;
+  /** Alert action id → the chat message it came from. */
+  private readonly actionOrigins = new Map<string, SignalOrigin>();
+  /** Proposal id → the chat message its trade came from. */
+  private readonly proposalOrigins = new Map<string, SignalOrigin>();
 
   constructor(private readonly deps: ControllerDeps) {
     this.now = deps.now ?? Date.now;
@@ -114,6 +127,8 @@ export class SessionController {
   /** Shows an alert, or holds it until the confirm/voice step on screen is answered. */
   alert(session: Session, ev: AlertEvent): void {
     const dev = this.device(session);
+    const actionId = `al${this.now().toString(36)}`;
+    if (ev.action && ev.origin) remember(this.actionOrigins, actionId, ev.origin);
     const overlay: Overlay = {
       kind: 'alert',
       title: ev.title,
@@ -121,7 +136,7 @@ export class SessionController {
       ...(ev.action
         ? {
             action: {
-              id: `al${this.now().toString(36)}`,
+              id: actionId,
               label: ruleVerb(ev.action).slice(0, 24),
               intent: ev.action,
             },
@@ -233,9 +248,13 @@ export class SessionController {
   private async onCardAction(session: Session, cardId: string, actionId: string): Promise<void> {
     const dev = this.device(session);
     let intent: Intent | undefined;
+    let origin: SignalOrigin | undefined;
     if (cardId === 'alert') {
       const o = session.overlay();
-      if (o?.kind === 'alert' && o.action?.id === actionId) intent = o.action.intent;
+      if (o?.kind === 'alert' && o.action?.id === actionId) {
+        intent = o.action.intent;
+        origin = this.actionOrigins.get(actionId);
+      }
     } else {
       const card = session.cards().find((c) => c.id === cardId);
       intent = card?.actions.find((a) => a.id === actionId)?.intent;
@@ -245,7 +264,7 @@ export class SessionController {
       return;
     }
     dev.gen++;
-    await this.handle(session, intent, { gen: dev.gen });
+    await this.handle(session, intent, { gen: dev.gen, ...(origin ? { origin } : {}) });
   }
 
   private async onMenu(session: Session, actionId: string): Promise<void> {
@@ -279,12 +298,21 @@ export class SessionController {
     }
     this.last = { ...this.last, execMs: this.now() - t0 };
     const p = this.deps.proposals.get(proposalId);
+    const origin = this.proposalOrigins.get(proposalId);
+    this.proposalOrigins.delete(proposalId);
     this.deps.log?.(
       `[exec ${session.id.slice(0, 8)}] ${p?.view.title ?? proposalId} → ${result.status} ${this.last.execMs}ms ${result.message}`,
     );
     if (result.message === PRICE_MOVED && p) {
-      await this.propose(session, p.intent, { note: 'Price moved — check the new price' });
+      await this.propose(session, p.intent, {
+        note: 'Price moved — check the new price',
+        ...(origin ? { origin } : {}),
+      });
       return;
+    }
+    if (origin && p && (result.status === 'filled' || result.status === 'partial')) {
+      const trade = describeIntent(p.intent, (k) => this.deps.catalogue.byKey(k));
+      this.deps.onSignalFilled?.(origin, `${trade} · ${result.message}`);
     }
     const lines = p ? [p.view.title] : [];
     if (result.status === 'error') {
@@ -309,7 +337,7 @@ export class SessionController {
   private async handle(
     session: Session,
     intent: Intent,
-    opts: { heard?: string; gen: number },
+    opts: { heard?: string; gen: number; origin?: SignalOrigin },
   ): Promise<void> {
     const dev = this.device(session);
     const heard = opts.heard ? `"${opts.heard.slice(0, HEARD_MAX)}"` : undefined;
@@ -334,7 +362,11 @@ export class SessionController {
       }
       default: {
         const note = opts.heard ? `heard: ${heard}` : undefined;
-        await this.propose(session, intent, { ...(note ? { note } : {}), gen: opts.gen });
+        await this.propose(session, intent, {
+          ...(note ? { note } : {}),
+          gen: opts.gen,
+          ...(opts.origin ? { origin: opts.origin } : {}),
+        });
       }
     }
   }
@@ -342,12 +374,13 @@ export class SessionController {
   private async propose(
     session: Session,
     intent: Intent,
-    opts: { note?: string; gen?: number },
+    opts: { note?: string; gen?: number; origin?: SignalOrigin },
   ): Promise<void> {
     const dev = this.device(session);
     const gen = opts.gen ?? dev.gen;
     const p = await this.deps.proposals.propose(intent);
     if (dev.gen !== gen) return;
+    if (opts.origin && !('blocked' in p)) remember(this.proposalOrigins, p.view.id, opts.origin);
     const note = opts.note ? { note: opts.note } : {};
     let proposal: ProposalView;
     if ('blocked' in p) {

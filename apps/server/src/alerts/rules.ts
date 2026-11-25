@@ -23,7 +23,11 @@ export type AlertEvent = {
   key?: string;
   /** Shown before other held alerts (liquidation distance). */
   urgent?: boolean;
+  /** The chat message a signal came from: a fill of its action can be reported back there. */
+  origin?: SignalOrigin;
 };
+
+export type SignalOrigin = { chatId: number; messageId: number };
 
 export type RuleContext = {
   market(key: string): OutcomeMarket | undefined;

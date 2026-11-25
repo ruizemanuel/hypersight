@@ -38,7 +38,12 @@ const ethLong: PerpPosition = {
   szDecimals: 4,
 };
 
-function setup(opts: { resolve?: (text: string) => Promise<Resolution> } = {}) {
+function setup(
+  opts: {
+    resolve?: (text: string) => Promise<Resolution>;
+    onSignalFilled?: (origin: { chatId: number; messageId: number }, message: string) => void;
+  } = {},
+) {
   const clock = { now: T0 };
   const catalogue = new Catalogue({ now: () => clock.now });
   catalogue.reset(
@@ -105,6 +110,7 @@ function setup(opts: { resolve?: (text: string) => Promise<Resolution> } = {}) {
     refresh,
     modeInfo: async () => ['Agent valid until Dec 20', 'Limits $250/order · $2,000/day'],
     now: () => clock.now,
+    ...(opts.onSignalFilled ? { onSignalFilled: opts.onSignalFilled } : {}),
   });
   const session = new Session('s1');
   const sent: ServerMsg[] = [];
@@ -416,6 +422,74 @@ describe('SessionController — alerts', () => {
     expect(s.overlays().at(-1)?.kind).toBe('confirm');
     await s.controller.onClientMsg(s.session, { t: 'cancel', proposalId: p.id });
     expect(s.overlays().at(-1)).toMatchObject({ kind: 'alert', title: 'ETH +5.5%' });
+  });
+});
+
+describe('SessionController — trades from chat signals', () => {
+  const origin = { chatId: -100, messageId: 7 };
+  const signal = {
+    ruleId: 'telegram',
+    key: 'tg:-100:7',
+    title: 'TELEGRAM · Alpha calls',
+    lines: ['whale: "closing half my eth"'],
+    action: { kind: 'closePerp' as const, coin: 'ETH', fraction: 0.5 },
+    origin,
+  };
+
+  async function tapSignal(s: ReturnType<typeof setup>) {
+    s.controller.alert(s.session, signal);
+    const alert = s.overlays().at(-1);
+    if (alert?.kind !== 'alert' || !alert.action) throw new Error('expected an alert action');
+    await s.controller.onClientMsg(s.session, {
+      t: 'action',
+      cardId: 'alert',
+      actionId: alert.action.id,
+    });
+    return confirmOf(s.overlays().at(-1));
+  }
+
+  it('reports the fill of a trade proposed from a chat signal back to that message', async () => {
+    const onSignalFilled = vi.fn();
+    const s = setup({ onSignalFilled });
+    s.executor.result = { status: 'filled', message: 'Filled 0.25 @ 3411' };
+    const p = await tapSignal(s);
+    await s.controller.onClientMsg(s.session, { t: 'confirm', proposalId: p.id });
+    expect(onSignalFilled).toHaveBeenCalledTimes(1);
+    expect(onSignalFilled).toHaveBeenCalledWith(origin, 'Close 50% of ETH · Filled 0.25 @ 3411');
+
+    // A trade the user started themselves is never reported anywhere.
+    await s.controller.onTranscript(s.session, 'close half my eth', {});
+    const own = confirmOf(s.overlays().at(-1));
+    await s.controller.onClientMsg(s.session, { t: 'confirm', proposalId: own.id });
+    expect(onSignalFilled).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a partial fill, but not a refused, resting or unknown result', async () => {
+    for (const [result, reported] of [
+      [{ status: 'partial', message: 'Partially filled 0.1/0.25 @ 3411' }, true],
+      [{ status: 'none', message: 'No liquidity — nothing executed' }, false],
+      [{ status: 'resting', message: 'Resting' }, false],
+      [{ status: 'error', message: 'Hyperliquid error: 504' }, false],
+    ] as const) {
+      const onSignalFilled = vi.fn();
+      const s = setup({ onSignalFilled });
+      s.executor.result = { ...result };
+      const p = await tapSignal(s);
+      await s.controller.onClientMsg(s.session, { t: 'confirm', proposalId: p.id });
+      expect(onSignalFilled).toHaveBeenCalledTimes(reported ? 1 : 0);
+    }
+  });
+
+  it('keeps the chat origin when the price moved and the trade is proposed again', async () => {
+    const onSignalFilled = vi.fn();
+    const s = setup({ onSignalFilled });
+    const first = await tapSignal(s);
+    s.books.ETH = { bids: [{ px: 3000, sz: 10 }], asks: [{ px: 3001, sz: 10 }] };
+    await s.controller.onClientMsg(s.session, { t: 'confirm', proposalId: first.id });
+    const again = confirmOf(s.overlays().at(-1));
+    expect(onSignalFilled).not.toHaveBeenCalled();
+    await s.controller.onClientMsg(s.session, { t: 'confirm', proposalId: again.id });
+    expect(onSignalFilled).toHaveBeenCalledWith(origin, 'Close 50% of ETH · Filled');
   });
 });
 
