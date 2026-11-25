@@ -14,6 +14,8 @@ export type TelegramApi = {
   /** Long poll: waits up to `timeoutSec` for updates after `offset`. */
   getUpdates(offset: number, timeoutSec: number): Promise<TgUpdate[]>;
   sendMessage(chatId: number, text: string, replyTo?: number): Promise<void>;
+  /** The bot's own @username (the phone tells the user which bot to add to a group). */
+  getMe(): Promise<{ username: string }>;
 };
 
 /** A failed Bot API call; the message carries the method and Telegram's description, never the token. */
@@ -109,6 +111,10 @@ export function createTelegramApi(token: string, fetchFn: typeof fetch = fetch):
         },
         15_000,
       );
+    },
+    async getMe() {
+      const me = await call<{ username?: string }>('getMe', {}, 15_000);
+      return { username: me.username ?? '' };
     },
   };
 }

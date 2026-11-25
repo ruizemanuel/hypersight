@@ -15,6 +15,7 @@ import { type MarketSource, MarketStream } from './hl/market-stream';
 import { Catalogue, type OutcomeMarket } from './hl/outcomes';
 import { createApp } from './http/app';
 import { buildIntentContext, keytermsFor } from './intent/aliases';
+import { describeIntent } from './intent/describe';
 import type { IntentContext } from './intent/grammar';
 import { resolveIntent } from './intent/resolve';
 import { PairingCodes } from './pairing/codes';
@@ -24,6 +25,8 @@ import { type Focus, SessionController } from './session/controller';
 import { SessionRegistry } from './session/registry';
 import { openDb } from './store/db';
 import { createRepos, type DeviceRecord } from './store/repos';
+import { createTelegramApi, TelegramPoller } from './telegram/bot';
+import { TelegramSignals } from './telegram/signals';
 import { createGramBalance } from './ton/balance';
 import { type ExecResult, type Executor, FakeExecutor } from './trade/executor';
 import { OwnOrders } from './trade/own-orders';
@@ -209,6 +212,8 @@ function main(): void {
 
   // The router hands transcripts to the controller, which is built right after it.
   let controller: SessionController | null = null;
+  // Built after the controller (it pushes alerts through it); fills are reported back to it.
+  let signals: TelegramSignals | null = null;
 
   const elevenLabsKey = cfg.elevenLabsKey;
   const voice = new VoiceRouter({
@@ -244,6 +249,7 @@ function main(): void {
     modeInfo,
     voice,
     badge,
+    onSignalFilled: (origin, message) => signals?.onFilled(origin, message),
     log,
   });
   controller = sessionController;
@@ -257,6 +263,38 @@ function main(): void {
     },
     devices: repos.devices,
   });
+
+  // Telegram: trade signals in the chats the user follows (picked on the phone) become alerts.
+  let telegramBot: string | null = null;
+  let poller: TelegramPoller | null = null;
+  if (cfg.telegramToken) {
+    const tg = createTelegramApi(cfg.telegramToken);
+    const tgSignals = new TelegramSignals({
+      chats: repos.telegramChats,
+      context: () => intentContext(),
+      presets: () => repos.settings.get().presets,
+      alert: (ev) => {
+        for (const session of registry.all()) sessionController.alert(session, ev);
+      },
+      api: tg,
+      describe: (intent) => describeIntent(intent, (k) => catalogue.byKey(k)),
+      log: (line) => log(line),
+    });
+    signals = tgSignals;
+    poller = new TelegramPoller({
+      api: tg,
+      onMessage: (m) => tgSignals.onMessage(m),
+      log: (line) => log(line),
+    });
+    poller.start();
+    void tg.getMe().then(
+      (me) => {
+        telegramBot = me.username || null;
+        log(`[telegram] polling as @${telegramBot ?? '?'}`);
+      },
+      (err) => log('[telegram] bot lookup failed', err),
+    );
+  }
 
   /** A device just paired: start market data with its account, or switch to its agent. */
   function onPaired(device: DeviceRecord): void {
@@ -299,6 +337,7 @@ function main(): void {
         network: 'testnet',
         connected: registry.all().some((s) => s.attached),
         latency: sessionController.metrics(),
+        telegram: cfg.telegramToken ? { bot: telegramBot } : null,
       }),
     },
   });
@@ -409,6 +448,7 @@ function main(): void {
   const shutdown = (signal: string) => {
     log(`[server] ${signal} received, shutting down`);
     alerts?.stop();
+    poller?.stop();
     void Promise.allSettled([stream?.stop(), gateway.close()])
       .then(() => hl.close())
       .then(() => db.close())

@@ -1,12 +1,13 @@
 import type { AlertRule, Settings } from '@hypersight/protocol';
-import type { CompanionApi } from './api';
+import type { CompanionApi, TelegramChat } from './api';
 import { buildRule, describeRule, type RuleForm } from './rules';
 import { button, field, fmtMs, fmtTime, h, section } from './views';
 
 const STATUS_REFRESH_MS = 5000;
 
 /**
- * Phone-side setup screen: status, watchlist, presets, risk limits, alert rules and history.
+ * Phone-side setup screen: status, watchlist, presets, risk limits, alert rules, Telegram chats
+ * and history.
  * Setup only — every action on the glasses works without it.
  */
 export function mountCompanion(
@@ -32,6 +33,11 @@ export function mountCompanion(
     api
       .status()
       .then((s) => {
+        tg.enabled = s.telegram !== null && s.telegram !== undefined;
+        tg.bot = s.telegram?.bot ?? null;
+        renderTgHint();
+        // Waiting for the first chat: it shows up as soon as the bot sees a message there.
+        if (tg.enabled && tg.count === 0) loadChats();
         mode.textContent = s.mode === 'paper' ? 'PAPER' : 'TESTNET';
         latency.textContent = `Voice → text ${fmtMs(s.latency.sttMs)} · intent ${fmtMs(s.latency.intentMs)} · execution ${fmtMs(s.latency.execMs)}`;
       })
@@ -283,6 +289,54 @@ export function mountCompanion(
     ),
   );
 
+  // Telegram: chats the bot is in; a followed chat's trade calls become glasses alerts.
+  const tg = { enabled: true, bot: null as string | null, count: -1 };
+  const tgHint = h('p', { class: 'muted' }, 'Loading chats…');
+  const tgList = h('ul', { class: 'list' });
+  const renderTgHint = () => {
+    tgHint.textContent = !tg.enabled
+      ? 'Telegram is off on this server (no bot token).'
+      : tg.count === 0
+        ? `Add @${tg.bot ?? 'the bot'} to a group, send a message, then follow it here.`
+        : tg.count > 0
+          ? 'Trade calls in followed chats reach the glasses sized from your quick actions — nothing runs until you confirm.'
+          : 'Loading chats…';
+  };
+  const renderChats = (chats: TelegramChat[]) => {
+    tg.count = chats.length;
+    renderTgHint();
+    tgList.replaceChildren(
+      ...chats.map((c) => {
+        const toggle = (label: string, key: 'follow' | 'replyFills') =>
+          h(
+            'label',
+            { class: 'rule' },
+            h('input', {
+              type: 'checkbox',
+              checked: c[key],
+              onchange: (ev: Event) =>
+                void api
+                  .setTelegramChat(c.id, { [key]: (ev.target as HTMLInputElement).checked })
+                  .then(loadChats, fail('update the chat')),
+            }),
+            h('span', {}, label),
+          );
+        return h(
+          'li',
+          {},
+          h('span', {}, c.title, h('small', {}, c.type)),
+          h(
+            'div',
+            { class: 'toggles' },
+            toggle('Follow', 'follow'),
+            toggle('Reply when filled', 'replyFills'),
+          ),
+        );
+      }),
+    );
+  };
+  const loadChats = () => void api.telegramChats().then(renderChats, fail('load Telegram chats'));
+
   // History
   const historyList = h('ul', { class: 'list history' });
   const renderHistory = () =>
@@ -321,6 +375,7 @@ export function mountCompanion(
       h('div', { class: 'inline' }, liqPct.row),
       saveLiq,
     ),
+    section('Telegram', tgHint, tgList, button('Refresh', loadChats, 'ghost')),
     section('History', historyList, button('Refresh', renderHistory, 'ghost')),
     h('p', { class: 'muted foot' }, 'Testnet only · the agent wallet cannot withdraw funds'),
     toast,
@@ -331,6 +386,7 @@ export function mountCompanion(
   void api.watch().then(renderWatch, fail('load the watchlist'));
   void api.settings().then(renderSettings, fail('load settings'));
   void api.rules().then(renderRules, fail('load alerts'));
+  loadChats();
   renderHistory();
 
   return {

@@ -145,6 +145,20 @@ describe('createTelegramApi', () => {
     expect(String(err)).not.toContain('secret-token');
   });
 
+  it('reads the bot username', async () => {
+    const { fn, calls } = fakeFetch({
+      ok: true,
+      result: {
+        id: 1,
+        is_bot: true,
+        first_name: 'HyperSight Desk',
+        username: 'hypersight_desk_bot',
+      },
+    });
+    expect(await createTelegramApi(TOKEN, fn).getMe()).toEqual({ username: 'hypersight_desk_bot' });
+    expect(calls[0]?.url).toBe(`https://api.telegram.org/bot${TOKEN}/getMe`);
+  });
+
   it('replies to a message in its chat', async () => {
     const { fn, calls } = fakeFetch({ ok: true, result: {} });
     await createTelegramApi(TOKEN, fn).sendMessage(-100, '✅ Filled', 7);
@@ -188,6 +202,9 @@ async function runPoller(steps: Step[], onMessage: (m: TgMessage) => void = () =
         return step;
       },
       async sendMessage() {},
+      async getMe() {
+        return { username: 'bot' };
+      },
     };
     poller = new TelegramPoller({
       api,

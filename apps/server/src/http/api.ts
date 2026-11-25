@@ -9,6 +9,8 @@ export type ApiStatus = {
   network: string;
   connected: boolean;
   latency: { sttMs?: number; intentMs?: number; execMs?: number };
+  /** Null without a bot token; bot is its @username once Telegram answered. */
+  telegram?: { bot: string | null } | null;
 };
 
 export type ApiDeps = {

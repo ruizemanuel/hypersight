@@ -7,6 +7,16 @@ export type Status = {
   network: string;
   connected: boolean;
   latency: { sttMs?: number; intentMs?: number; execMs?: number };
+  /** Null when the server runs without a Telegram bot; bot is its @username once known. */
+  telegram?: { bot: string | null } | null;
+};
+export type TelegramChat = {
+  id: number;
+  title: string;
+  type: string;
+  follow: boolean;
+  replyFills: boolean;
+  seenAt: number;
 };
 export type SettingsPatch = {
   risk?: Partial<Settings['risk']>;
@@ -47,6 +57,9 @@ export function createCompanionApi(baseUrl: string, token: string) {
     deleteRule: (id: string) =>
       call<{ ok: true }>(`/rules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     history: (limit = 50) => call<HistoryEntry[]>(`/history?limit=${limit}`),
+    telegramChats: () => call<TelegramChat[]>('/telegram/chats'),
+    setTelegramChat: (id: number, patch: { follow?: boolean; replyFills?: boolean }) =>
+      call<TelegramChat>(`/telegram/chats/${id}`, { method: 'PUT', body: patch }),
   };
 }
 

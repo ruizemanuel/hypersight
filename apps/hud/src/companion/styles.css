@@ -132,6 +132,11 @@ body {
   align-items: center;
   gap: 8px;
 }
+.companion .toggles {
+  display: grid;
+  gap: 4px;
+  flex-shrink: 0;
+}
 .companion button {
   font: inherit;
   border-radius: var(--radius);
