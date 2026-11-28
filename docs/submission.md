@@ -32,5 +32,5 @@ Even Hub SDK 0.0.16 · TypeScript · Node 24 · Hyperliquid API (`@nktkas/hyperl
 ## Links
 
 - Code: https://github.com/ruizemanuel/hypersight
-- Demo video: _to add_
+- Demo video: https://youtu.be/oTGkwU4cZ1o
 - Plugin package: `hypersight.ehpk` (attached)

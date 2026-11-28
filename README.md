@@ -6,6 +6,8 @@
 
 Built for the *Heads Up: Even Realities* hackathon (Crypto & DeFi · Messaging & News: Telegram + Hyperliquid in one flow), Nov 23–29, 2026.
 
+▶ **[Watch the demo video (2 min)](https://youtu.be/oTGkwU4cZ1o)**: every trade in it is real, on Hyperliquid testnet.
+
 | Deck | Actions | Confirm | Result |
 |---|---|---|---|
 | ![Deck](docs/media/01-deck.png) | ![Actions](docs/media/02-actions.png) | ![Confirm](docs/media/03-confirm.png) | ![Result](docs/media/04-result.png) |
