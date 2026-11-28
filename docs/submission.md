@@ -30,7 +30,7 @@ The trading key is a Hyperliquid agent wallet: it can trade but can never withdr
 ## Try it
 
 - **Watch:** the demo video above; every trade in it is real, on Hyperliquid testnet.
-- **Glasses package:** `hypersight.ehpk` (attached, also on the GitHub v1.0.0 release) connects to the hosted testnet server at hypersight.fly.dev. One server serves one Hyperliquid account and the hosted one is tied to my testnet account, so to trade from your own account run the server yourself (five steps in the README).
+- **Glasses package:** `hypersight.ehpk` (download it from the GitHub v1.0.0 release) connects to the hosted testnet server at hypersight.fly.dev. One server serves one Hyperliquid account and the hosted one is tied to my testnet account, so to trade from your own account run the server yourself (five steps in the README).
 - **No keys needed:** `pnpm e2e` runs the whole stack against captured market data with a fake executor and drives the Even Hub simulator through deck → actions → confirm → result.
 
 ## Business model
@@ -45,4 +45,4 @@ Even Hub SDK 0.0.16 · TypeScript · Node 24 · Hyperliquid API (`@nktkas/hyperl
 
 - Code: https://github.com/ruizemanuel/hypersight
 - Demo video: https://youtu.be/oTGkwU4cZ1o
-- Plugin package: `hypersight.ehpk` (attached; also on the release: https://github.com/ruizemanuel/hypersight/releases/tag/v1.0.0)
+- Plugin package: `hypersight.ehpk` (download: https://github.com/ruizemanuel/hypersight/releases/tag/v1.0.0)
