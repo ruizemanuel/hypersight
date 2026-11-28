@@ -154,9 +154,11 @@ describe('MarketStream', () => {
   });
 
   it("keeps today's fills, from the snapshot and the stream, for the day recap", async () => {
+    const day = Date.UTC(2026, 10, 24);
+    // Fills older than two days are pruned against the clock: pin it to the day under test.
+    vi.setSystemTime(day + 3_600_000);
     const { stream, emit } = make();
     await stream.start();
-    const day = Date.UTC(2026, 10, 24);
     emit('userFills', {
       user: USER,
       isSnapshot: true,
@@ -174,9 +176,10 @@ describe('MarketStream', () => {
   });
 
   it('keeps each fill once when a reconnect replays the snapshot', async () => {
+    const day = Date.UTC(2026, 10, 24);
+    vi.setSystemTime(day + 3_600_000);
     const { stream, emit } = make();
     await stream.start();
-    const day = Date.UTC(2026, 10, 24);
     const snapshot = [
       { coin: 'ETH', tid: 11, time: day + 60_000 },
       { coin: 'SOL', tid: 12, time: day + 120_000 },
