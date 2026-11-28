@@ -6,6 +6,12 @@
 
 **Demo video (2 min):** https://youtu.be/oTGkwU4cZ1o
 
+## What's real
+
+- **Real fills, not paper.** The demo video shows three orders signed and filled on Hyperliquid testnet: half of an ETH long closed from the user's own alert rule, 9 shares of a HIP-4 outcome (prediction) market sold by voice, and an ETH long opened from a Telegram call. Tap → filled in about two seconds.
+- **Perps and prediction markets in one place,** read and traded from the same cards, by tap or by a short phrase in English or Spanish.
+- **The user's own wallet approves a trade-only agent** from a pairing code, and the server checks that approval on Hyperliquid before it places any order.
+
 ## The problem
 
 People holding positions on Hyperliquid are rarely at a trading screen when it matters. They unlock the phone dozens of times a session to check one number (a PnL, the odds of the game they bet on, how far they are from liquidation) and fumble through an exchange UI to act on it.
@@ -25,7 +31,7 @@ Traders with open perps or HIP-4 outcome positions who are on the move: on a cal
 
 ## Safety
 
-The trading key is a Hyperliquid agent wallet: it can trade but can never withdraw. With device pairing the glasses show a code, the user approves a fresh agent from their own wallet on a web page, and the server verifies the approval on Hyperliquid before trading. Agent keys are encrypted at rest. Hard limits apply to every order ($250 per order, $2,000 per day, 5× leverage, allowed coins, slippage caps, one write per 2 s), the server refuses any non-testnet URL, and *Cancel orders* is always one menu tap away. Suggestions only come from rules the user wrote or chats the user chose to follow; a chat message never sets the size or leverage, and no trade runs without a confirm on the glasses.
+The trading key is a Hyperliquid agent wallet: it can trade but can never withdraw. With device pairing the glasses show a code, the user approves a fresh agent from their own wallet on a web page, and the server verifies the approval on Hyperliquid before trading. Agent keys are encrypted at rest. Hard limits apply to every order ($250 per order, $2,000 per day, 5× leverage, allowed coins, slippage caps, one write per 2 s), the server refuses any non-testnet URL, and *Cancel orders* is always one menu tap away. Suggestions only come from rules the user wrote or chats the user chose to follow; a chat message never sets the size or leverage, and no trade runs without a confirm on the glasses. Telegram calls are filtered before they reach the glasses: only chats the user follows, nothing older than three minutes, one alert per message, and questions, conditionals (*"if BTC breaks 62k I'm long"*), negations, status updates (*"TP1 hit"*) and disclaimers are not read as calls. Message text is never stored.
 
 ## Try it
 
